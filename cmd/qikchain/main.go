@@ -1,7 +1,7 @@
 package main
 
-import "fmt"
+import "github.com/BioMark3r/qikchain/internal/cli"
 
 func main() {
-	fmt.Println("qikchain: CLI scaffold (TODO). Use ./bin/polygon-edge to run a node.")
+	cli.Execute()
 }
