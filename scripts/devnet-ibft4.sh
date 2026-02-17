@@ -53,6 +53,7 @@ start_node() {
 
   msg "Starting chain-$i  rpc:$rpc_port metrics:$metrics_port libp2p:$libp2p_port grpc:$grpc_port"
   nohup "$EDGE" server \
+    --seal \
     --data-dir "$dir" \
     --chain "$GENESIS_PATH" \
     --jsonrpc "${HOST}:${rpc_port}" \
