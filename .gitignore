@@ -1,0 +1,15 @@
+# Build artifacts
+bin/
+.data/
+
+# Logs
+*.log
+
+# OS junk
+.DS_Store
+
+# Node state
+third_party/
+
+# Docker
+*.tar
