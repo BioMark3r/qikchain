@@ -1,0 +1,10 @@
+services:
+  build:
+    image: qikchain-build:go120
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./:/src
+    working_dir: /src
+    command: bash -lc "make clean && make all"

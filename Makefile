@@ -12,7 +12,7 @@ edge:
 	@if [ ! -d "$(EDGE_DIR)/.git" ]; then \
 		git clone --branch $(EDGE_BRANCH) $(EDGE_REPO) $(EDGE_DIR); \
 	fi
-	cd $(EDGE_DIR) && go build -o ../../$(BIN_DIR)/polygon-edge ./...
+	cd $(EDGE_DIR) && go build -o ../../$(BIN_DIR)/polygon-edge .
 
 qikchain:
 	@mkdir -p $(BIN_DIR)

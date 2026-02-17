@@ -1,0 +1,6 @@
+bin/
+.data/
+third_party/polygon-edge/
+**/.DS_Store
+**/*.log
+.git/
