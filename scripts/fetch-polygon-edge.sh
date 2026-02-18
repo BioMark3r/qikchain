@@ -6,7 +6,7 @@ DST="${ROOT}/third_party/polygon-edge"
 
 # Pin this to a known-good tag or commit for reproducibility
 EDGE_REPO_URL="${EDGE_REPO_URL:-https://github.com/BioMark3r/polygon-edge.git}"
-EDGE_REF="${EDGE_REF:-v1.1.1}"   # e.g. v1.3.0 or a commit SHA
+EDGE_REF="${EDGE_REF:-v1.3.3}"   # e.g. v1.3.0 or a commit SHA
 
 if [[ -d "${DST}/.git" ]]; then
   echo "polygon-edge already present: ${DST}"
