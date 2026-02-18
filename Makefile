@@ -12,7 +12,13 @@ all: edge qikchain
 
 edge:
 	./scripts/fetch-polygon-edge.sh
-	cd third_party/polygon-edge && go build -buildvcs=false -o ../../bin/polygon-edge .
+	@set -e; \
+	cd third_party/polygon-edge; \
+	if ! go build -buildvcs=false -o ../../bin/polygon-edge . ; then \
+		echo "edge: build requested go.mod updates; running 'go mod tidy' and retrying..."; \
+		go mod tidy; \
+		go build -buildvcs=false -o ../../bin/polygon-edge .; \
+	fi
 
 qikchain:
 	@mkdir -p $(BIN_DIR)
