@@ -111,24 +111,35 @@ if [[ -f "$GENESIS_PATH" ]]; then
   msg "Genesis exists: $GENESIS_PATH (reusing)"
 else
   msg "Generating genesis: $GENESIS_PATH"
-
-  # Collect validator ECDSA addresses from secrets init logs
+  # Collect validator (ECDSA addr + BLS pubkey) from secrets init logs
   IBFT_VALIDATORS=()
+  PREMINES=()
+
   for i in 1 2 3 4; do
     DIR="${PREFIX}${i}"
-    ADDR="$(sed -n '1,60p' "$DIR/secrets-init.log" | awk -F'= ' '/Public key \(address\)/ {print $2; exit}')"
+    LOG="$DIR/secrets-init.log"
+
+    ADDR="$(sed -n '1,80p' "$LOG" | awk -F'= ' '/Public key \(address\)/ {print $2; exit}')"
+    BLS="$(sed -n '1,120p' "$LOG" | awk -F'= ' '/BLS Public key/ {print $2; exit}')"
+
     ADDR="$(echo -n "${ADDR:-}" | tr -d '\r\n')"
-    [[ -n "$ADDR" ]] || die "Could not parse validator address for chain-$i from $DIR/secrets-init.log"
-    IBFT_VALIDATORS+=( "$ADDR" )
+    BLS="$(echo -n "${BLS:-}" | tr -d '\r\n')"
+
+    [[ -n "$ADDR" ]] || die "Could not parse validator address for chain-$i from $LOG"
+    [[ -n "$BLS"  ]] || die "Could not parse BLS public key for chain-$i from $LOG"
+
+    IBFT_VALIDATORS+=( "${ADDR}:${BLS}" )
+    PREMINES+=( "$ADDR" )
   done
 
   GENESIS_ARGS=(
     genesis
     --consensus "$CONSENSUS"
     --dir "$GENESIS_PATH"
+    --ibft-validator-type "bls"
   )
 
-  # Add validators explicitly (repeated flag)
+  # Add validators in required format: <address>:<bls_pubkey>
   for v in "${IBFT_VALIDATORS[@]}"; do
     GENESIS_ARGS+=( --ibft-validator "$v" )
   done
@@ -138,9 +149,9 @@ else
     GENESIS_ARGS+=( --bootnode "$b" )
   done
 
-  # Optional: premine validators for easy testing (default huge amount if balance omitted)
-  for v in "${IBFT_VALIDATORS[@]}"; do
-    GENESIS_ARGS+=( --premine "${v}" )
+  # Premine validator ECDSA addresses for easy CLI send tests
+  for a in "${PREMINES[@]}"; do
+    GENESIS_ARGS+=( --premine "$a" )
   done
 
   if [[ "$IBFT_POS" == "1" ]]; then
@@ -148,6 +159,7 @@ else
   fi
 
   "$EDGE" "${GENESIS_ARGS[@]}" >/dev/null
+
 fi
 
 # --- 3) Start 4 nodes ---
