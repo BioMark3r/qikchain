@@ -11,8 +11,8 @@ BIN_DIR=bin
 all: edge qikchain
 
 edge:
-	@mkdir -p $(BIN_DIR)
-	cd $(EDGE_DIR) && $(GO) build $(GOFLAGS) -o ../../$(BIN_DIR)/polygon-edge .
+	./scripts/fetch-polygon-edge.sh
+	cd third_party/polygon-edge && go build -buildvcs=false -o ../../bin/polygon-edge .
 
 qikchain:
 	@mkdir -p $(BIN_DIR)
