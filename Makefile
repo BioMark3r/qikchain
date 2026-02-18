@@ -8,7 +8,7 @@ BIN_DIR=bin
 
 .PHONY: all edge qikchain clean
 
-all: edge qikchain
+all: edge qikchain qikchaind
 
 edge:
 	./scripts/fetch-polygon-edge.sh
@@ -23,6 +23,9 @@ edge:
 qikchain:
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(GOFLAGS) -o $(BIN_DIR)/qikchain ./cmd/qikchain
+
+qikchaind:
+	$(GO) build -o $(BIN_DIR)/qikchaind ./cmd/qikchaind
 
 clean:
 	rm -rf $(BIN_DIR)
