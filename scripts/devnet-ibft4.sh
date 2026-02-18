@@ -52,6 +52,7 @@ start_node() {
   local pid_file="$PID_DIR/chain-$i.pid"
 
   msg "Starting chain-$i  rpc:$rpc_port metrics:$metrics_port libp2p:$libp2p_port grpc:$grpc_port"
+
   nohup "$EDGE" server \
     --seal \
     --data-dir "$dir" \
@@ -60,7 +61,7 @@ start_node() {
     --prometheus "${HOST}:${metrics_port}" \
     --libp2p "${HOST}:${libp2p_port}" \
     --grpc-address "${HOST}:${grpc_port}" \
-    >"$log_file" 2>&1 &
+   >"$log_file" 2>&1 &
 
   echo $! > "$pid_file"
 }
@@ -110,16 +111,36 @@ if [[ -f "$GENESIS_PATH" ]]; then
   msg "Genesis exists: $GENESIS_PATH (reusing)"
 else
   msg "Generating genesis: $GENESIS_PATH"
+
+  # Collect validator ECDSA addresses from secrets init logs
+  IBFT_VALIDATORS=()
+  for i in 1 2 3 4; do
+    DIR="${PREFIX}${i}"
+    ADDR="$(sed -n '1,60p' "$DIR/secrets-init.log" | awk -F'= ' '/Public key \(address\)/ {print $2; exit}')"
+    ADDR="$(echo -n "${ADDR:-}" | tr -d '\r\n')"
+    [[ -n "$ADDR" ]] || die "Could not parse validator address for chain-$i from $DIR/secrets-init.log"
+    IBFT_VALIDATORS+=( "$ADDR" )
+  done
+
   GENESIS_ARGS=(
     genesis
     --consensus "$CONSENSUS"
-    --ibft-validators-prefix-path "$PREFIX"
     --dir "$GENESIS_PATH"
   )
 
-  # Your Edge build requires at least one --bootnode at genesis time. :contentReference[oaicite:3]{index=3}
+  # Add validators explicitly (repeated flag)
+  for v in "${IBFT_VALIDATORS[@]}"; do
+    GENESIS_ARGS+=( --ibft-validator "$v" )
+  done
+
+  # Add bootnodes (your build requires at least one)
   for b in "${BOOTNODES[@]}"; do
     GENESIS_ARGS+=( --bootnode "$b" )
+  done
+
+  # Optional: premine validators for easy testing (default huge amount if balance omitted)
+  for v in "${IBFT_VALIDATORS[@]}"; do
+    GENESIS_ARGS+=( --premine "${v}" )
   done
 
   if [[ "$IBFT_POS" == "1" ]]; then
