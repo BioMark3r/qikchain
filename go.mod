@@ -6,3 +6,5 @@ require (
 	github.com/ethereum/go-ethereum v1.13.14
 	github.com/spf13/cobra v1.8.1
 )
+
+replace github.com/spf13/cobra => ./internal/cobra
