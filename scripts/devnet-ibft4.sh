@@ -52,14 +52,16 @@ start_node() {
   local pid_file="$PID_DIR/chain-$i.pid"
 
   msg "Starting chain-$i  rpc:$rpc_port metrics:$metrics_port libp2p:$libp2p_port grpc:$grpc_port"
+
   nohup "$EDGE" server \
+    --seal \
     --data-dir "$dir" \
     --chain "$GENESIS_PATH" \
     --jsonrpc "${HOST}:${rpc_port}" \
     --prometheus "${HOST}:${metrics_port}" \
     --libp2p "${HOST}:${libp2p_port}" \
     --grpc-address "${HOST}:${grpc_port}" \
-    >"$log_file" 2>&1 &
+   >"$log_file" 2>&1 &
 
   echo $! > "$pid_file"
 }
@@ -109,16 +111,47 @@ if [[ -f "$GENESIS_PATH" ]]; then
   msg "Genesis exists: $GENESIS_PATH (reusing)"
 else
   msg "Generating genesis: $GENESIS_PATH"
+  # Collect validator (ECDSA addr + BLS pubkey) from secrets init logs
+  IBFT_VALIDATORS=()
+  PREMINES=()
+
+  for i in 1 2 3 4; do
+    DIR="${PREFIX}${i}"
+    LOG="$DIR/secrets-init.log"
+
+    ADDR="$(sed -n '1,80p' "$LOG" | awk -F'= ' '/Public key \(address\)/ {print $2; exit}')"
+    BLS="$(sed -n '1,120p' "$LOG" | awk -F'= ' '/BLS Public key/ {print $2; exit}')"
+
+    ADDR="$(echo -n "${ADDR:-}" | tr -d '\r\n')"
+    BLS="$(echo -n "${BLS:-}" | tr -d '\r\n')"
+
+    [[ -n "$ADDR" ]] || die "Could not parse validator address for chain-$i from $LOG"
+    [[ -n "$BLS"  ]] || die "Could not parse BLS public key for chain-$i from $LOG"
+
+    IBFT_VALIDATORS+=( "${ADDR}:${BLS}" )
+    PREMINES+=( "$ADDR" )
+  done
+
   GENESIS_ARGS=(
     genesis
     --consensus "$CONSENSUS"
-    --ibft-validators-prefix-path "$PREFIX"
     --dir "$GENESIS_PATH"
+    --ibft-validator-type "bls"
   )
 
-  # Your Edge build requires at least one --bootnode at genesis time. :contentReference[oaicite:3]{index=3}
+  # Add validators in required format: <address>:<bls_pubkey>
+  for v in "${IBFT_VALIDATORS[@]}"; do
+    GENESIS_ARGS+=( --ibft-validator "$v" )
+  done
+
+  # Add bootnodes (your build requires at least one)
   for b in "${BOOTNODES[@]}"; do
     GENESIS_ARGS+=( --bootnode "$b" )
+  done
+
+  # Premine validator ECDSA addresses for easy CLI send tests
+  for a in "${PREMINES[@]}"; do
+    GENESIS_ARGS+=( --premine "$a" )
   done
 
   if [[ "$IBFT_POS" == "1" ]]; then
@@ -126,6 +159,7 @@ else
   fi
 
   "$EDGE" "${GENESIS_ARGS[@]}" >/dev/null
+
 fi
 
 # --- 3) Start 4 nodes ---
