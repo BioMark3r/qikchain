@@ -111,45 +111,53 @@ if [[ -f "$GENESIS_PATH" ]]; then
   msg "Genesis exists: $GENESIS_PATH (reusing)"
 else
   msg "Generating genesis: $GENESIS_PATH"
-  # Collect validator (ECDSA addr + BLS pubkey) from secrets init logs
-  IBFT_VALIDATORS=()
-  PREMINES=()
 
-  for i in 1 2 3 4; do
-    DIR="${PREFIX}${i}"
-    LOG="$DIR/secrets-init.log"
-
-    ADDR="$(sed -n '1,80p' "$LOG" | awk -F'= ' '/Public key \(address\)/ {print $2; exit}')"
-    BLS="$(sed -n '1,120p' "$LOG" | awk -F'= ' '/BLS Public key/ {print $2; exit}')"
-
-    ADDR="$(echo -n "${ADDR:-}" | tr -d '\r\n')"
-    BLS="$(echo -n "${BLS:-}" | tr -d '\r\n')"
-
-    [[ -n "$ADDR" ]] || die "Could not parse validator address for chain-$i from $LOG"
-    [[ -n "$BLS"  ]] || die "Could not parse BLS public key for chain-$i from $LOG"
-
-    IBFT_VALIDATORS+=( "${ADDR}:${BLS}" )
-    PREMINES+=( "$ADDR" )
-  done
+  # IMPORTANT for Edge >= 1.3.x:
+  # Genesis reads validator secrets from:
+  #   --validators-path   <root dir containing folders>
+  #   --validators-prefix <folder name prefix>
+  #
+  # Your folders are: $NET_DIR/chain-1 ... chain-4
+  # so:
+  #   validators-path   = $NET_DIR
+  #   validators-prefix = "chain-"
+  #
+  VALIDATORS_PATH="$NET_DIR"
+  VALIDATORS_PREFIX="chain-"
 
   GENESIS_ARGS=(
     genesis
     --consensus "$CONSENSUS"
     --dir "$GENESIS_PATH"
+    --validators-path "$VALIDATORS_PATH"
+    --validators-prefix "$VALIDATORS_PREFIX"
     --ibft-validator-type "bls"
   )
-
-  # Add validators in required format: <address>:<bls_pubkey>
-  for v in "${IBFT_VALIDATORS[@]}"; do
-    GENESIS_ARGS+=( --ibft-validator "$v" )
-  done
 
   # Add bootnodes (your build requires at least one)
   for b in "${BOOTNODES[@]}"; do
     GENESIS_ARGS+=( --bootnode "$b" )
   done
 
-  # Premine validator ECDSA addresses for easy CLI send tests
+  # Premine validator ECDSA addresses for easy CLI send tests:
+  # For Edge >= 1.3.x, you no longer need to scrape logs.
+  # Read the validator ECDSA address from the secrets output.
+  #
+  # polygon-edge secrets init creates a "secrets" folder; the address is usually stored in:
+  #   <data-dir>/secrets/validator.key (or similar)
+  #
+  # Since exact file names can vary, simplest: reuse the secrets-init.log you already store,
+  # but ONLY for the ECDSA address premine (not for genesis validators).
+  PREMINES=()
+  for i in 1 2 3 4; do
+    DIR="${PREFIX}${i}"
+    LOG="$DIR/secrets-init.log"
+    ADDR="$(sed -n '1,120p' "$LOG" | awk -F'= ' '/Public key \(address\)/ {print $2; exit}')"
+    ADDR="$(echo -n "${ADDR:-}" | tr -d '\r\n')"
+    [[ -n "$ADDR" ]] || die "Could not parse premine address for chain-$i from $LOG"
+    PREMINES+=( "$ADDR" )
+  done
+
   for a in "${PREMINES[@]}"; do
     GENESIS_ARGS+=( --premine "$a" )
   done
@@ -159,7 +167,6 @@ else
   fi
 
   "$EDGE" "${GENESIS_ARGS[@]}" >/dev/null
-
 fi
 
 # --- 3) Start 4 nodes ---
