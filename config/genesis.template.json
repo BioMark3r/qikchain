@@ -3,12 +3,12 @@
   "genesis": {
     "gasLimit": "{{BLOCK_GAS_LIMIT}}",
     "difficulty": "0x1",
-    "baseFeeEnabled": {{BASE_FEE_ENABLED}},
+    "baseFeeEnabled": "{{BASE_FEE_ENABLED}}",
     "extraData": "{{VALIDATOR_EXTRA_DATA}}",
-    "alloc": {{PREALLOCATIONS}}
+    "alloc": "{{PREALLOCATIONS}}"
   },
   "params": {
-    "chainID": {{CHAIN_ID}},
+    "chainID": "{{CHAIN_ID}}",
     "minGasPrice": "{{MIN_GAS_PRICE}}"
   },
   "bootnodes": [],
