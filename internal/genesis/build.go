@@ -118,6 +118,8 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	}
 
 	genesis := DeepMerge(base, overlay)
+	removeForbiddenTopLevelKeys(genesis)
+	ensureParamsEngineIBFT(genesis, overlay)
 	v := Validate(genesis, ValidateOptions{
 		AllowMissingPOSAddresses: opts.AllowMissingPOSAddresses,
 		Strict:                   opts.Strict,
@@ -144,6 +146,33 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	}
 	res.MetadataJSON = meta
 	return res, nil
+}
+
+func ensureParamsEngineIBFT(base map[string]any, overlay map[string]any) {
+	params, _ := base["params"].(map[string]any)
+	if params == nil {
+		params = map[string]any{}
+		base["params"] = params
+	}
+	engine, _ := params["engine"].(map[string]any)
+	if engine == nil {
+		engine = map[string]any{}
+		params["engine"] = engine
+	}
+	overlayParams, _ := overlay["params"].(map[string]any)
+	overlayEngine, _ := overlayParams["engine"].(map[string]any)
+	if overlayEngine == nil {
+		return
+	}
+	for k, v := range overlayEngine {
+		engine[k] = cloneAny(v)
+	}
+}
+
+func removeForbiddenTopLevelKeys(genesis map[string]any) {
+	for _, key := range []string{"consensus", "consensusMode", "pos", "consensusRaw"} {
+		delete(genesis, key)
+	}
 }
 
 func WriteOutputs(opts BuildOptions, res BuildResult) error {

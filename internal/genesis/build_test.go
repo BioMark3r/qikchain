@@ -1,6 +1,7 @@
 package genesis
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -99,4 +100,52 @@ func TestPOSBuildFailsWithoutDeploymentsUnlessAllowed(t *testing.T) {
 
 func renderAllocForTest(cfg config.AllocationConfig) ([]byte, string, error) {
 	return allocations.RenderAllocMapAndTotal(cfg)
+}
+
+func TestGenesisBuild_NoForbiddenKeys(t *testing.T) {
+	opts := BuildOptions{
+		Consensus:       "poa",
+		Env:             "devnet",
+		TemplatePath:    "../../config/genesis.template.json",
+		OverlayDir:      "../../config/consensus",
+		TokenPath:       "../../config/token.json",
+		AllocationsPath: "../../config/allocations/devnet.json",
+		ChainID:         100,
+		BlockGasLimit:   "0x1c9c380",
+		MinGasPrice:     "0",
+		BaseFeeEnabled:  false,
+		Pretty:          true,
+		Strict:          true,
+	}
+	res, err := Build(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gen map[string]any
+	if err := json.Unmarshal(res.GenesisJSON, &gen); err != nil {
+		t.Fatalf("parse genesis json: %v", err)
+	}
+
+	for _, key := range []string{"consensus", "pos", "consensusMode", "consensusRaw"} {
+		if _, exists := gen[key]; exists {
+			t.Fatalf("forbidden top-level key found: %s", key)
+		}
+	}
+
+	params, _ := gen["params"].(map[string]any)
+	engine, _ := params["engine"].(map[string]any)
+	ibft, _ := engine["ibft"].(map[string]any)
+	if ibft == nil {
+		t.Fatalf("params.engine.ibft missing")
+	}
+	if got := ibft["type"]; got != "PoA" {
+		t.Fatalf("expected params.engine.ibft.type=PoA, got %v", got)
+	}
+
+	genesisObj, _ := gen["genesis"].(map[string]any)
+	alloc, _ := genesisObj["alloc"].(map[string]any)
+	if len(alloc) == 0 {
+		t.Fatalf("expected non-empty genesis.alloc")
+	}
 }
