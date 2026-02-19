@@ -1,4 +1,5 @@
 {
+  "consensusMode": "ibft-pos",
   "consensus": {
     "type": "ibft",
     "ibft": {
@@ -7,12 +8,18 @@
       "epochSize": 100,
       "blockTime": "2s",
       "staking": {
-        "enabled": true
+        "enabled": true,
+        "contract": "{{STAKING_ADDRESS}}"
       },
+      "validatorSetContract": "{{VALIDATOR_SET_ADDRESS}}",
       "blockRewards": {
         "enabled": true,
         "rewardPerBlock": "{{POS_BLOCK_REWARD}}"
       }
     }
+  },
+  "pos": {
+    "validatorSetContract": "{{VALIDATOR_SET_ADDRESS}}",
+    "stakingContract": "{{STAKING_ADDRESS}}"
   }
 }

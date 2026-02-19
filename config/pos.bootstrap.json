@@ -1,0 +1,14 @@
+{
+  "deployer": {
+    "privateKeyEnv": "POS_DEPLOYER_PK",
+    "address": "{{POS_DEPLOYER_ADDRESS}}"
+  },
+  "operators": [
+    {
+      "operator": "{{VALIDATOR1_EOA}}",
+      "payout": "{{VALIDATOR1_PAYOUT}}",
+      "consensusKeyFile": "data/validators/validator1/consensus.key",
+      "initialStakeWei": "5000000000000000000"
+    }
+  ]
+}
