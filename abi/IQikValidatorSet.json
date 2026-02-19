@@ -1,0 +1,40 @@
+[
+  {
+    "inputs": [],
+    "name": "validatorCount",
+    "outputs": [{"internalType":"uint256","name":"","type":"uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getValidators",
+    "outputs": [{"internalType":"address[]","name":"","type":"address[]"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getValidatorKeys",
+    "outputs": [{"internalType":"bytes[]","name":"","type":"bytes[]"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType":"uint256","name":"idx","type":"uint256"}],
+    "name": "getValidatorAt",
+    "outputs": [
+      {"internalType":"address","name":"operator","type":"address"},
+      {"internalType":"bytes","name":"consensusKey","type":"bytes"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType":"address","name":"operator","type":"address"}],
+    "name": "isValidator",
+    "outputs": [{"internalType":"bool","name":"","type":"bool"}],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

@@ -1,0 +1,46 @@
+[
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":false,"internalType":"bytes","name":"consensusKey","type":"bytes"},{"indexed":false,"internalType":"address","name":"payout","type":"address"}],"name":"OperatorRegistered","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":false,"internalType":"bytes","name":"newKey","type":"bytes"}],"name":"ConsensusKeyUpdated","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":false,"internalType":"address","name":"payout","type":"address"}],"name":"PayoutUpdated","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"staker","type":"address"},{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"Staked","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"staker","type":"address"},{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"unlockTime","type":"uint256"}],"name":"UnstakeRequested","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"staker","type":"address"},{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":false,"internalType":"uint256","name":"amount","type":"uint256"}],"name":"UnstakedWithdrawn","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"operator","type":"address"},{"indexed":false,"internalType":"bool","name":"jailed","type":"bool"}],"name":"OperatorJailed","type":"event"},
+  {"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"param","type":"bytes32"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"ParamsUpdated","type":"event"},
+
+  {"inputs":[{"internalType":"bytes","name":"consensusKey","type":"bytes"},{"internalType":"address","name":"payout","type":"address"}],"name":"registerOperator","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"bytes","name":"newKey","type":"bytes"}],"name":"updateConsensusKey","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"newPayout","type":"address"}],"name":"updatePayout","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"}],"name":"stake","outputs":[],"stateMutability":"payable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"address","name":"staker","type":"address"}],"name":"stakeFor","outputs":[],"stateMutability":"payable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"requestUnstake","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"}],"name":"withdrawUnstaked","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bool","name":"jailed","type":"bool"}],"name":"setJailed","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"newMin","type":"uint256"}],"name":"setMinStake","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"newMax","type":"uint256"}],"name":"setMaxValidators","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[{"internalType":"uint256","name":"seconds_","type":"uint256"}],"name":"setUnbondingPeriod","outputs":[],"stateMutability":"nonpayable","type":"function"},
+
+  {"inputs":[],"name":"minStake","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"maxValidators","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"unbondingPeriod","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+
+  {
+    "inputs":[{"internalType":"address","name":"operator","type":"address"}],
+    "name":"getOperator",
+    "outputs":[{"components":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"address","name":"payout","type":"address"},{"internalType":"bytes","name":"consensusKey","type":"bytes"},{"internalType":"uint256","name":"totalStake","type":"uint256"},{"internalType":"bool","name":"registered","type":"bool"},{"internalType":"bool","name":"jailed","type":"bool"}],"internalType":"struct IQikStaking.OperatorInfo","name":"","type":"tuple"}],
+    "stateMutability":"view",
+    "type":"function"
+  },
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"address","name":"staker","type":"address"}],"name":"stakeOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"}],"name":"totalStakeOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {
+    "inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"address","name":"staker","type":"address"}],
+    "name":"getUnbondings",
+    "outputs":[{"components":[{"internalType":"uint256","name":"amount","type":"uint256"},{"internalType":"uint256","name":"unlockTime","type":"uint256"}],"internalType":"struct IQikStaking.Unbonding[]","name":"","type":"tuple[]"}],
+    "stateMutability":"view",
+    "type":"function"
+  },
+  {"inputs":[],"name":"getActiveOperators","outputs":[{"internalType":"address[]","name":"","type":"address[]"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"getActiveConsensusKeys","outputs":[{"internalType":"bytes[]","name":"","type":"bytes[]"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"operator","type":"address"}],"name":"isActiveOperator","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"}
+]
