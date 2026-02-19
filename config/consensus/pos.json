@@ -3,17 +3,17 @@
     "engine": {
       "ibft": {
         "type": "PoS",
-        "validator_type": "ecdsa",
-        "block_time": "2s",
-        "epoch_size": 100,
+        "validatorType": "ecdsa",
+        "blockTime": "2s",
+        "epochSize": 100,
         "staking": {
           "enabled": true,
           "contract": "{{STAKING_ADDRESS}}"
         },
-        "validator_set_contract": "{{VALIDATOR_SET_ADDRESS}}",
-        "block_rewards": {
+        "validatorSetContract": "{{VALIDATOR_SET_ADDRESS}}",
+        "blockRewards": {
           "enabled": false,
-          "reward_per_block": "0"
+          "rewardPerBlock": "0"
         }
       }
     }
