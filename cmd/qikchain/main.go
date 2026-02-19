@@ -118,7 +118,8 @@ func cmdGenesisBuild(args []string) int {
 	posDeployments := fs.String("pos-deployments", "build/deployments/pos.local.json", "PoS deployment file path")
 	out := fs.String("out", "build/genesis.json", "output genesis path")
 	metadataOut := fs.String("metadata-out", "build/chain-metadata.json", "output chain metadata path")
-	strict := fs.Bool("strict", true, "fail on unresolved placeholders")
+	strict := fs.Bool("strict", true, "strict genesis validation (fail on legacy top-level consensus keys)")
+	acceptLegacyConsensus := fs.Bool("accept-legacy-consensus", false, "temporarily accept top-level legacy consensus schema when params.engine.ibft is missing")
 	allowMissingPOS := fs.Bool("allow-missing-pos-addresses", false, "allow unresolved PoS addresses")
 	pretty := fs.Bool("pretty", true, "pretty print output")
 	if err := fs.Parse(args); err != nil {
@@ -164,6 +165,7 @@ func cmdGenesisBuild(args []string) int {
 		MetadataOutPath:          *metadataOut,
 		Strict:                   *strict,
 		AllowMissingPOSAddresses: *allowMissingPOS,
+		AcceptLegacyConsensus:    *acceptLegacyConsensus,
 		Pretty:                   *pretty,
 	}
 
@@ -190,6 +192,8 @@ func cmdGenesisValidate(args []string) int {
 	fs := flag.NewFlagSet("genesis validate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	file := fs.String("file", "", "genesis file path")
+	strict := fs.Bool("strict", true, "strict genesis validation (fail on legacy top-level consensus keys)")
+	acceptLegacyConsensus := fs.Bool("accept-legacy-consensus", false, "temporarily accept top-level legacy consensus schema when params.engine.ibft is missing")
 	allowMissingPOS := fs.Bool("allow-missing-pos-addresses", false, "allow unresolved PoS addresses")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -208,9 +212,16 @@ func cmdGenesisValidate(args []string) int {
 		fmt.Fprintln(os.Stderr, "genesis validate: invalid JSON:", err)
 		return 1
 	}
-	errs := genesis.Validate(doc, genesis.ValidateOptions{AllowMissingPOSAddresses: *allowMissingPOS})
-	if len(errs) > 0 {
-		for _, e := range errs {
+	res := genesis.Validate(doc, genesis.ValidateOptions{
+		AllowMissingPOSAddresses: *allowMissingPOS,
+		Strict:                   *strict,
+		AcceptLegacyConsensus:    *acceptLegacyConsensus,
+	})
+	for _, w := range res.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	if len(res.Errors) > 0 {
+		for _, e := range res.Errors {
 			fmt.Fprintln(os.Stderr, "-", e)
 		}
 		return 1

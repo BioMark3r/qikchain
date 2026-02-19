@@ -29,6 +29,7 @@ type BuildOptions struct {
 	MetadataOutPath          string
 	Strict                   bool
 	AllowMissingPOSAddresses bool
+	AcceptLegacyConsensus    bool
 	Pretty                   bool
 }
 
@@ -117,8 +118,16 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	}
 
 	genesis := DeepMerge(base, overlay)
-	if errs := Validate(genesis, ValidateOptions{AllowMissingPOSAddresses: opts.AllowMissingPOSAddresses}); len(errs) > 0 {
-		return res, fmt.Errorf("genesis validation failed: %v", errs[0])
+	v := Validate(genesis, ValidateOptions{
+		AllowMissingPOSAddresses: opts.AllowMissingPOSAddresses,
+		Strict:                   opts.Strict,
+		AcceptLegacyConsensus:    opts.AcceptLegacyConsensus,
+	})
+	for _, w := range v.Warnings {
+		fmt.Fprintf(os.Stderr, "genesis build warning: %s\n", w)
+	}
+	if len(v.Errors) > 0 {
+		return res, fmt.Errorf("genesis validation failed: %v", v.Errors[0])
 	}
 
 	if opts.Pretty {
