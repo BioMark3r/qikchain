@@ -9,7 +9,8 @@
   },
   "params": {
     "chainID": "{{CHAIN_ID}}",
-    "minGasPrice": "{{MIN_GAS_PRICE}}"
+    "minGasPrice": "{{MIN_GAS_PRICE}}",
+    "engine": {}
   },
   "bootnodes": []
 }
