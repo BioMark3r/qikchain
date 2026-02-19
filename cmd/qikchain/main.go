@@ -17,6 +17,7 @@ import (
 	"github.com/BioMark3r/qikchain/internal/allocations"
 	"github.com/BioMark3r/qikchain/internal/chainmeta"
 	"github.com/BioMark3r/qikchain/internal/config"
+	"github.com/BioMark3r/qikchain/internal/genesis"
 )
 
 func main() {
@@ -41,6 +42,8 @@ func run(argv []string) int {
 		return cmdAllocations(argv[1:])
 	case "chain":
 		return cmdChain(argv[1:])
+	case "genesis":
+		return cmdGenesis(argv[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "qikchain: unknown command %q (try --help)\n", argv[0])
 		return 2
@@ -57,6 +60,9 @@ Usage:
   qikchain allocations report --file config/allocations/devnet.json [--json]
   qikchain allocations render --file config/allocations/devnet.json
   qikchain chain metadata --token config/token.json [--out build/chain-metadata.json]
+  qikchain genesis build [--consensus poa|pos --env devnet|staging|mainnet]
+  qikchain genesis validate --file build/genesis.json
+  qikchain genesis print --file build/genesis.json [--json]
 `)
 }
 
@@ -76,6 +82,179 @@ func cmdAllocations(args []string) int {
 		fmt.Fprintf(os.Stderr, "allocations: unknown subcommand %q\n", args[0])
 		return 2
 	}
+}
+
+func cmdGenesis(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "genesis: expected subcommand (build|validate|print)")
+		return 2
+	}
+	switch args[0] {
+	case "build":
+		return cmdGenesisBuild(args[1:])
+	case "validate":
+		return cmdGenesisValidate(args[1:])
+	case "print":
+		return cmdGenesisPrint(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "genesis: unknown subcommand %q\n", args[0])
+		return 2
+	}
+}
+
+func cmdGenesisBuild(args []string) int {
+	fs := flag.NewFlagSet("genesis build", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	consensus := fs.String("consensus", "poa", "consensus mode (poa|pos)")
+	env := fs.String("env", "devnet", "environment (devnet|staging|mainnet)")
+	templatePath := fs.String("template", "config/genesis.template.json", "genesis template path")
+	overlayDir := fs.String("overlay-dir", "config/consensus", "consensus overlay directory")
+	tokenPath := fs.String("token", "config/token.json", "token metadata file path")
+	allocationsPath := fs.String("allocations", "", "allocation file path")
+	chainID := fs.Int("chain-id", 0, "chain id")
+	blockGasLimit := fs.String("block-gas-limit", "0x1c9c380", "block gas limit")
+	minGasPrice := fs.String("min-gas-price", "0", "minimum gas price in wei")
+	baseFeeEnabled := fs.Bool("base-fee-enabled", false, "enable base fee")
+	posDeployments := fs.String("pos-deployments", "build/deployments/pos.local.json", "PoS deployment file path")
+	out := fs.String("out", "build/genesis.json", "output genesis path")
+	metadataOut := fs.String("metadata-out", "build/chain-metadata.json", "output chain metadata path")
+	strict := fs.Bool("strict", true, "fail on unresolved placeholders")
+	allowMissingPOS := fs.Bool("allow-missing-pos-addresses", false, "allow unresolved PoS addresses")
+	pretty := fs.Bool("pretty", true, "pretty print output")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	if *consensus != "poa" && *consensus != "pos" {
+		fmt.Fprintln(os.Stderr, "genesis build: --consensus must be poa or pos")
+		return 2
+	}
+	if *env != "devnet" && *env != "staging" && *env != "mainnet" {
+		fmt.Fprintln(os.Stderr, "genesis build: --env must be devnet|staging|mainnet")
+		return 2
+	}
+	if *allocationsPath == "" {
+		*allocationsPath = filepath.Join("config", "allocations", *env+".json")
+	}
+	if *chainID == 0 {
+		switch *env {
+		case "devnet":
+			*chainID = 100
+		case "staging":
+			*chainID = 101
+		case "mainnet":
+			fmt.Fprintln(os.Stderr, "genesis build: --chain-id is required for mainnet")
+			return 2
+		}
+	}
+
+	opts := genesis.BuildOptions{
+		Consensus:                *consensus,
+		Env:                      *env,
+		TemplatePath:             *templatePath,
+		OverlayDir:               *overlayDir,
+		TokenPath:                *tokenPath,
+		AllocationsPath:          *allocationsPath,
+		ChainID:                  *chainID,
+		BlockGasLimit:            *blockGasLimit,
+		MinGasPrice:              *minGasPrice,
+		BaseFeeEnabled:           *baseFeeEnabled,
+		POSDeploymentsPath:       *posDeployments,
+		OutPath:                  *out,
+		MetadataOutPath:          *metadataOut,
+		Strict:                   *strict,
+		AllowMissingPOSAddresses: *allowMissingPOS,
+		Pretty:                   *pretty,
+	}
+
+	res, err := genesis.Build(opts)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "genesis build:", err)
+		return 1
+	}
+	if err := genesis.WriteOutputs(opts, res); err != nil {
+		fmt.Fprintln(os.Stderr, "genesis build:", err)
+		return 1
+	}
+
+	fmt.Printf("consensus=%s env=%s chainId=%d\n", *consensus, *env, *chainID)
+	fmt.Printf("allocTotalWei=%s\n", res.TotalPremineWei)
+	fmt.Printf("genesis=%s\nmetadata=%s\n", *out, *metadataOut)
+	if res.POSAddressesUsed {
+		fmt.Printf("pos.staking=%s\npos.validatorSet=%s\n", res.POSAddresses.Staking, res.POSAddresses.ValidatorSet)
+	}
+	return 0
+}
+
+func cmdGenesisValidate(args []string) int {
+	fs := flag.NewFlagSet("genesis validate", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	file := fs.String("file", "", "genesis file path")
+	allowMissingPOS := fs.Bool("allow-missing-pos-addresses", false, "allow unresolved PoS addresses")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *file == "" {
+		fmt.Fprintln(os.Stderr, "genesis validate: --file is required")
+		return 2
+	}
+	data, err := os.ReadFile(*file)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "genesis validate:", err)
+		return 1
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		fmt.Fprintln(os.Stderr, "genesis validate: invalid JSON:", err)
+		return 1
+	}
+	errs := genesis.Validate(doc, genesis.ValidateOptions{AllowMissingPOSAddresses: *allowMissingPOS})
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintln(os.Stderr, "-", e)
+		}
+		return 1
+	}
+	fmt.Println("genesis validation: PASS")
+	return 0
+}
+
+func cmdGenesisPrint(args []string) int {
+	fs := flag.NewFlagSet("genesis print", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	file := fs.String("file", "", "genesis file path")
+	raw := fs.Bool("json", false, "print raw JSON as-is")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *file == "" {
+		fmt.Fprintln(os.Stderr, "genesis print: --file is required")
+		return 2
+	}
+	data, err := os.ReadFile(*file)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "genesis print:", err)
+		return 1
+	}
+	if *raw {
+		fmt.Print(string(data))
+		if len(data) == 0 || data[len(data)-1] != '\n' {
+			fmt.Println()
+		}
+		return 0
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		fmt.Fprintln(os.Stderr, "genesis print: invalid JSON:", err)
+		return 1
+	}
+	out, err := genesis.MarshalCanonicalIndented(doc)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "genesis print:", err)
+		return 1
+	}
+	fmt.Print(string(out))
+	return 0
 }
 
 func loadAndVerifyAllocationFile(path string, allowZero bool) (config.AllocationConfig, allocations.Summary, error) {
