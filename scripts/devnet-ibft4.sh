@@ -1,206 +1,265 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================================================
+# QikChain Devnet Startup: IBFT 4-node (PoA or PoS)
+#
+# Usage examples:
+#   CONSENSUS=poa ./scripts/devnet-ibft4.sh
+#   CONSENSUS=pos ./scripts/devnet-ibft4.sh
+#   RESET=1 CONSENSUS=poa ./scripts/devnet-ibft4.sh
+#
+# Optional:
+#   ENV=devnet|staging|mainnet
+#   CHAIN_ID=100
+#   ALLOCATIONS_FILE=config/allocations/devnet.json
+#   TOKEN_FILE=config/token.json
+#   POS_DEPLOYMENTS=build/deployments/pos.local.json
+#
+# Notes:
+# - For PoS, this script starts the chain. Contract deploy/bootstrap happens after:
+#     ./scripts/deploy-pos-contracts.sh
+#     ./scripts/bootstrap-pos-validators.sh
+# ============================================================
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EDGE="${EDGE_BIN:-$ROOT/bin/polygon-edge}"
 
-# Root state directory
+EDGE_BIN="${EDGE_BIN:-$ROOT/bin/polygon-edge}"
+QIKCHAIN_BIN="${QIKCHAIN_BIN:-$ROOT/bin/qikchain}"
+
+# Data root
 DATA_ROOT="${DATA_ROOT:-$ROOT/.data}"
-NET_DIR="${NET_DIR:-$DATA_ROOT/ibft4}"
+NET_NAME="${NET_NAME:-ibft4}"
+NET_DIR="${NET_DIR:-$DATA_ROOT/$NET_NAME}"
 
-# Chain files
-GENESIS_PATH="${GENESIS_PATH:-$NET_DIR/genesis.json}"
+# Config toggles
+RESET="${RESET:-0}"
+CONSENSUS="${CONSENSUS:-poa}"           # poa|pos
+ENV_NAME="${ENV:-devnet}"              # devnet|staging|mainnet
 
-# Behavior toggles
-RESET="${RESET:-0}"                 # RESET=1 wipes the network dir
-INSECURE_SECRETS="${INSECURE_SECRETS:-1}"  # dev-only filesystem key storage
-CONSENSUS="${CONSENSUS:-ibft}"      # PoA now
-IBFT_POS="${IBFT_POS:-0}"           # set to 1 later if your Edge supports --pos for IBFT PoS genesis
+# Chain config
+CHAIN_ID="${CHAIN_ID:-100}"
+BLOCK_GAS_LIMIT="${BLOCK_GAS_LIMIT:-15000000}"
+MIN_GAS_PRICE="${MIN_GAS_PRICE:-0}"
+BASE_FEE_ENABLED="${BASE_FEE_ENABLED:-false}"
 
-# Host/ports (local)
-HOST="${HOST:-127.0.0.1}"
-BASE_RPC_PORT="${BASE_RPC_PORT:-8545}"       # node i uses BASE_RPC_PORT+(i-1)
-BASE_METRICS_PORT="${BASE_METRICS_PORT:-9090}" # node i uses BASE_METRICS_PORT+(i-1)
-BASE_LIBP2P_PORT="${BASE_LIBP2P_PORT:-1478}" # node i uses BASE_LIBP2P_PORT+(i-1)
-BASE_GRPC_PORT="${BASE_GRPC_PORT:-9632}"     # node i uses BASE_GRPC_PORT+(i-1)
+# Files
+GENESIS_OUT="${GENESIS_OUT:-$ROOT/build/genesis.json}"
+METADATA_OUT="${METADATA_OUT:-$ROOT/build/chain-metadata.json}"
+ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations/devnet.json}"
+TOKEN_FILE="${TOKEN_FILE:-$ROOT/config/token.json}"
+POS_DEPLOYMENTS="${POS_DEPLOYMENTS:-$ROOT/build/deployments/pos.local.json}"
 
-LOG_DIR="$NET_DIR/logs"
-PID_DIR="$NET_DIR/pids"
+# Ports (node i => ports[i])
+RPC_PORTS=(8545 8546 8547 8548)
+GRPC_PORTS=(9632 9633 9634 9635)
+P2P_PORTS=(1478 1479 1480 1481)
+METRICS_PORTS=(9090 9091 9092 9093)
 
-die() { echo "ERROR: $*" >&2; exit 1; }
-msg() { echo -e "$*"; }
+# Node dirs
+NODE_DIRS=("$NET_DIR/node1" "$NET_DIR/node2" "$NET_DIR/node3" "$NET_DIR/node4")
 
-[[ -x "$EDGE" ]] || die "polygon-edge binary not found/executable at: $EDGE (run: make edge)"
+log() { echo "[$(date +"%H:%M:%S")] $*"; }
 
-if [[ "$RESET" == "1" ]]; then
-  msg "RESET=1 -> removing $NET_DIR"
-  rm -rf "$NET_DIR"
-fi
-
-mkdir -p "$NET_DIR" "$LOG_DIR" "$PID_DIR"
-
-# Helper: start node in background
-start_node() {
-  local i="$1"
-  local dir="$2"
-  local rpc_port="$3"
-  local metrics_port="$4"
-  local libp2p_port="$5"
-  local grpc_port="$6"
-
-  local log_file="$LOG_DIR/chain-$i.log"
-  local pid_file="$PID_DIR/chain-$i.pid"
-
-  msg "Starting chain-$i  rpc:$rpc_port metrics:$metrics_port libp2p:$libp2p_port grpc:$grpc_port"
-
-  nohup "$EDGE" server \
-    --seal \
-    --data-dir "$dir" \
-    --chain "$GENESIS_PATH" \
-    --jsonrpc "${HOST}:${rpc_port}" \
-    --prometheus "${HOST}:${metrics_port}" \
-    --libp2p "${HOST}:${libp2p_port}" \
-    --grpc-address "${HOST}:${grpc_port}" \
-   >"$log_file" 2>&1 &
-
-  echo $! > "$pid_file"
+require_bin() {
+  local b="$1"
+  if [[ ! -x "$b" ]]; then
+    echo "ERROR: missing executable: $b"
+    exit 1
+  fi
 }
 
-# Helper: parse Node ID (your output format: "Node ID              = <peerid>")
-parse_node_id() {
-  awk -F'= ' '/Node ID/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}'
+ensure_dirs() {
+  mkdir -p "$NET_DIR" "$ROOT/build" "$ROOT/build/deployments"
+  for d in "${NODE_DIRS[@]}"; do
+    mkdir -p "$d"
+  done
 }
 
-# --- 1) Create 4 validator dirs and secrets ---
-# IMPORTANT: for multi-validator genesis, Edge expects a *prefix* like "chain-"
-# and validator folders like "chain-1", "chain-2", etc. :contentReference[oaicite:2]{index=2}
-PREFIX="$NET_DIR/chain-"
+reset_net() {
+  if [[ "$RESET" == "1" ]]; then
+    log "RESET=1: wiping network dir: $NET_DIR"
+    rm -rf "$NET_DIR"
+    ensure_dirs
+  fi
+}
 
-BOOTNODES=()
-
-for i in 1 2 3 4; do
-  DIR="${PREFIX}${i}"
-  NODEID_FILE="$DIR/nodeid"
-  INIT_LOG="$DIR/secrets-init.log"
-
-  mkdir -p "$DIR"
-
-  if [[ -f "$NODEID_FILE" ]]; then
-    NODE_ID="$(tr -d '\r\n' < "$NODEID_FILE")"
-  else
-    msg "Initializing secrets for chain-$i (DEV MODE)..."
-    if [[ "$INSECURE_SECRETS" == "1" ]]; then
-      INIT_OUT="$("$EDGE" secrets init --data-dir "$DIR" --insecure 2>&1 | tee "$INIT_LOG")"
-    else
-      INIT_OUT="$("$EDGE" secrets init --data-dir "$DIR" 2>&1 | tee "$INIT_LOG")"
+# Create node secrets if missing
+init_secrets_if_needed() {
+  for i in 1 2 3 4; do
+    local dir="${NODE_DIRS[$((i-1))]}"
+    local secrets="$dir/secrets"
+    if [[ ! -d "$secrets" ]]; then
+      log "Initializing secrets for node$i in $secrets"
+      mkdir -p "$secrets"
+      "$EDGE_BIN" secrets init --data-dir "$secrets" >/dev/null
     fi
+  done
+}
 
-    NODE_ID="$(echo "$INIT_OUT" | parse_node_id || true)"
-    NODE_ID="$(echo -n "${NODE_ID:-}" | tr -d '\r\n')"
-    [[ -n "$NODE_ID" ]] || die "Could not parse Node ID for chain-$i. Check $INIT_LOG"
+# Build bootnode list (multiaddr) from node1 (or use all nodes)
+# polygon-edge uses libp2p multiaddr; we can use node key output.
+# We'll derive enode-like? For polygon-edge, easiest is to use "server --bootnode" with libp2p addr.
+# However, without repo-specific precedent, we keep it simple:
+# - Start node1 first
+# - Use node1 as bootnode for nodes2-4 (requires node1 libp2p address)
+get_node1_bootnode_addr() {
+  local node1_dir="${NODE_DIRS[0]}"
+  local secrets="$node1_dir/secrets"
 
-    echo "$NODE_ID" > "$NODEID_FILE"
+  # polygon-edge can print node ID via:
+  #   polygon-edge secrets output --data-dir <secrets>
+  # We'll attempt to read it. If this differs in your build, adjust this function.
+  local out
+  out="$("$EDGE_BIN" secrets output --data-dir "$secrets" 2>/dev/null || true)"
+  # Expected to contain something like "Node ID: <peerID>" (varies by version).
+  # Try to extract a peer ID-ish token:
+  local peer_id
+  peer_id="$(echo "$out" | sed -nE 's/.*(Node ID:|node id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
+  if [[ -z "${peer_id:-}" ]]; then
+    # Fallback: try "Peer ID:"
+    peer_id="$(echo "$out" | sed -nE 's/.*(Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
   fi
 
-  LIBP2P_PORT=$((BASE_LIBP2P_PORT + i - 1))
-  BOOTNODES+=( "/ip4/${HOST}/tcp/${LIBP2P_PORT}/p2p/${NODE_ID}" )
-done
+  if [[ -z "${peer_id:-}" ]]; then
+    echo ""
+    return 0
+  fi
 
-# --- 2) Generate genesis (once) ---
-if [[ -f "$GENESIS_PATH" ]]; then
-  msg "Genesis exists: $GENESIS_PATH (reusing)"
-else
-  msg "Generating genesis: $GENESIS_PATH"
+  # Bootnode multiaddr (assumes TCP + local)
+  echo "/ip4/127.0.0.1/tcp/${P2P_PORTS[0]}/p2p/${peer_id}"
+}
 
-  # IMPORTANT for Edge >= 1.3.x:
-  # Genesis reads validator secrets from:
-  #   --validators-path   <root dir containing folders>
-  #   --validators-prefix <folder name prefix>
-  #
-  # Your folders are: $NET_DIR/chain-1 ... chain-4
-  # so:
-  #   validators-path   = $NET_DIR
-  #   validators-prefix = "chain-"
-  #
-  VALIDATORS_PATH="$NET_DIR"
-  VALIDATORS_PREFIX="chain-"
-
-  GENESIS_ARGS=(
-    genesis
+build_genesis() {
+  log "Building genesis via CLI (consensus=$CONSENSUS env=$ENV_NAME chainId=$CHAIN_ID)"
+  local args=(
+    genesis build
     --consensus "$CONSENSUS"
-    --dir "$GENESIS_PATH"
-    --validators-path "$VALIDATORS_PATH"
-    --validators-prefix "$VALIDATORS_PREFIX"
-    --ibft-validator-type "bls"
+    --env "$ENV_NAME"
+    --chain-id "$CHAIN_ID"
+    --block-gas-limit "$BLOCK_GAS_LIMIT"
+    --min-gas-price "$MIN_GAS_PRICE"
+    --base-fee-enabled "$BASE_FEE_ENABLED"
+    --allocations "$ALLOCATIONS_FILE"
+    --token "$TOKEN_FILE"
+    --out "$GENESIS_OUT"
+    --metadata-out "$METADATA_OUT"
   )
 
-  # Add bootnodes (your build requires at least one)
-  for b in "${BOOTNODES[@]}"; do
-    GENESIS_ARGS+=( --bootnode "$b" )
-  done
-
-  # Premine validator ECDSA addresses for easy CLI send tests:
-  # For Edge >= 1.3.x, you no longer need to scrape logs.
-  # Read the validator ECDSA address from the secrets output.
-  #
-  # polygon-edge secrets init creates a "secrets" folder; the address is usually stored in:
-  #   <data-dir>/secrets/validator.key (or similar)
-  #
-  # Since exact file names can vary, simplest: reuse the secrets-init.log you already store,
-  # but ONLY for the ECDSA address premine (not for genesis validators).
-  PREMINES=()
-  for i in 1 2 3 4; do
-    DIR="${PREFIX}${i}"
-    LOG="$DIR/secrets-init.log"
-    ADDR="$(sed -n '1,120p' "$LOG" | awk -F'= ' '/Public key \(address\)/ {print $2; exit}')"
-    ADDR="$(echo -n "${ADDR:-}" | tr -d '\r\n')"
-    [[ -n "$ADDR" ]] || die "Could not parse premine address for chain-$i from $LOG"
-    PREMINES+=( "$ADDR" )
-  done
-
-  for a in "${PREMINES[@]}"; do
-    GENESIS_ARGS+=( --premine "$a" )
-  done
-
-  if [[ "$IBFT_POS" == "1" ]]; then
-    GENESIS_ARGS+=( --pos )
+  # For PoS we try to inject addresses if deployments exist
+  if [[ "$CONSENSUS" == "pos" ]]; then
+    args+=(--pos-deployments "$POS_DEPLOYMENTS")
+    # If deployments missing, you can allow missing placeholders by setting:
+    #   ALLOW_MISSING_POS=1
+    if [[ "${ALLOW_MISSING_POS:-0}" == "1" ]]; then
+      args+=(--allow-missing-pos-addresses)
+    fi
   fi
 
-  "$EDGE" "${GENESIS_ARGS[@]}" >/dev/null
-fi
+  "$QIKCHAIN_BIN" "${args[@]}"
+  "$QIKCHAIN_BIN" genesis validate --file "$GENESIS_OUT"
+}
 
-# --- 3) Start 4 nodes ---
-msg ""
-msg "Bootnodes embedded in genesis:"
-for b in "${BOOTNODES[@]}"; do
-  msg "  $b"
-done
-msg ""
+start_node() {
+  local idx="$1" # 0-based
+  local node_num=$((idx+1))
+  local dir="${NODE_DIRS[$idx]}"
 
-for i in 1 2 3 4; do
-  DIR="${PREFIX}${i}"
-  RPC_PORT=$((BASE_RPC_PORT + i - 1))
-  METRICS_PORT=$((BASE_METRICS_PORT + i - 1))
-  LIBP2P_PORT=$((BASE_LIBP2P_PORT + i - 1))
-  GRPC_PORT=$((BASE_GRPC_PORT + i - 1))
+  local rpc="${RPC_PORTS[$idx]}"
+  local grpc="${GRPC_PORTS[$idx]}"
+  local p2p="${P2P_PORTS[$idx]}"
+  local metrics="${METRICS_PORTS[$idx]}"
 
-  start_node "$i" "$DIR" "$RPC_PORT" "$METRICS_PORT" "$LIBP2P_PORT" "$GRPC_PORT"
-done
+  local log_file="$dir/server.log"
+  local pid_file="$dir/server.pid"
 
-msg ""
-msg "IBFT4 network started."
-msg "RPC endpoints:"
-msg "  chain-1: http://${HOST}:$((BASE_RPC_PORT+0))"
-msg "  chain-2: http://${HOST}:$((BASE_RPC_PORT+1))"
-msg "  chain-3: http://${HOST}:$((BASE_RPC_PORT+2))"
-msg "  chain-4: http://${HOST}:$((BASE_RPC_PORT+3))"
-msg ""
-msg "Metrics endpoints:"
-msg "  chain-1: http://${HOST}:$((BASE_METRICS_PORT+0))/metrics"
-msg "  chain-2: http://${HOST}:$((BASE_METRICS_PORT+1))/metrics"
-msg "  chain-3: http://${HOST}:$((BASE_METRICS_PORT+2))/metrics"
-msg "  chain-4: http://${HOST}:$((BASE_METRICS_PORT+3))/metrics"
-msg ""
-msg "Logs: $LOG_DIR"
-msg "Stop:  ./scripts/devnet-ibft4-stop.sh  (create using snippet below)"
-msg "Reset: RESET=1 ./scripts/devnet-ibft4.sh"
+  # If already running, skip
+  if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+    log "node$node_num already running (pid=$(cat "$pid_file"))"
+    return 0
+  fi
+
+  local bootnode=""
+  if [[ "$idx" != "0" ]]; then
+    bootnode="$(get_node1_bootnode_addr)"
+  fi
+
+  log "Starting node$node_num (rpc=$rpc p2p=$p2p metrics=$metrics) ..."
+  # Note: Adjust flags if your polygon-edge build differs.
+  # Common flags include: --data-dir, --chain, --grpc-address, --jsonrpc, --libp2p, --seal, --metrics
+  #
+  # We keep it minimal + explicit port bindings.
+  (
+    set -x
+    if [[ -n "$bootnode" ]]; then
+      "$EDGE_BIN" server \
+        --data-dir "$dir" \
+        --chain "$GENESIS_OUT" \
+        --grpc-address "127.0.0.1:$grpc" \
+        --jsonrpc "127.0.0.1:$rpc" \
+        --libp2p "127.0.0.1:$p2p" \
+        --metrics "127.0.0.1:$metrics" \
+        --bootnode "$bootnode"
+    else
+      "$EDGE_BIN" server \
+        --data-dir "$dir" \
+        --chain "$GENESIS_OUT" \
+        --grpc-address "127.0.0.1:$grpc" \
+        --jsonrpc "127.0.0.1:$rpc" \
+        --libp2p "127.0.0.1:$p2p" \
+        --metrics "127.0.0.1:$metrics"
+    fi
+  ) >"$log_file" 2>&1 &
+
+  echo $! >"$pid_file"
+  log "node$node_num started (pid=$(cat "$pid_file")) logs=$log_file"
+}
+
+status_hint() {
+  cat <<EOF
+
+Devnet is starting.
+
+RPC endpoints:
+  node1: http://127.0.0.1:${RPC_PORTS[0]}
+  node2: http://127.0.0.1:${RPC_PORTS[1]}
+  node3: http://127.0.0.1:${RPC_PORTS[2]}
+  node4: http://127.0.0.1:${RPC_PORTS[3]}
+
+Metrics endpoints:
+  node1: http://127.0.0.1:${METRICS_PORTS[0]}
+  node2: http://127.0.0.1:${METRICS_PORTS[1]}
+  node3: http://127.0.0.1:${METRICS_PORTS[2]}
+  node4: http://127.0.0.1:${METRICS_PORTS[3]}
+
+Check chain:
+  $QIKCHAIN_BIN block head --rpc http://127.0.0.1:${RPC_PORTS[0]}
+  $QIKCHAIN_BIN status --rpc http://127.0.0.1:${RPC_PORTS[0]}
+
+PoS follow-ups (after chain is up):
+  ./scripts/deploy-pos-contracts.sh
+  ./scripts/bootstrap-pos-validators.sh
+
+EOF
+}
+
+main() {
+  require_bin "$EDGE_BIN"
+  require_bin "$QIKCHAIN_BIN"
+
+  ensure_dirs
+  reset_net
+  init_secrets_if_needed
+  build_genesis
+
+  # Start nodes (node1 first, then others for bootnode)
+  start_node 0
+  sleep 1
+  start_node 1
+  start_node 2
+  start_node 3
+
+  status_hint
+}
+
+main "$@"
