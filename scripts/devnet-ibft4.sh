@@ -36,6 +36,7 @@ NET_DIR="${NET_DIR:-$DATA_ROOT/$NET_NAME}"
 RESET="${RESET:-0}"
 CONSENSUS="${CONSENSUS:-poa}"           # poa|pos
 ENV_NAME="${ENV:-devnet}"              # devnet|staging|mainnet
+INSECURE_SECRETS="${INSECURE_SECRETS:-1}"  # dev-only
 
 # Chain config
 CHAIN_ID="${CHAIN_ID:-100}"
@@ -92,7 +93,11 @@ init_secrets_if_needed() {
     if [[ ! -d "$secrets" ]]; then
       log "Initializing secrets for node$i in $secrets"
       mkdir -p "$secrets"
-      "$EDGE_BIN" secrets init --data-dir "$secrets" >/dev/null
+      if [[ "$INSECURE_SECRETS" == "1" ]]; then
+        "$EDGE_BIN" secrets init --data-dir "$secrets" --insecure >/dev/null
+      else
+        "$EDGE_BIN" secrets init --data-dir "$secrets" >/dev/null
+      fi
     fi
   done
 }
