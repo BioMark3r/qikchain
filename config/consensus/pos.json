@@ -1,0 +1,18 @@
+{
+  "consensus": {
+    "type": "ibft",
+    "ibft": {
+      "validatorType": "ecdsa",
+      "mode": "stake",
+      "epochSize": 100,
+      "blockTime": "2s",
+      "staking": {
+        "enabled": true
+      },
+      "blockRewards": {
+        "enabled": true,
+        "rewardPerBlock": "{{POS_BLOCK_REWARD}}"
+      }
+    }
+  }
+}

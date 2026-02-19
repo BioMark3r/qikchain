@@ -1,0 +1,10 @@
+{
+  "consensus": {
+    "type": "ibft",
+    "ibft": {
+      "validatorType": "ecdsa",
+      "mode": "static",
+      "blockTime": "2s"
+    }
+  }
+}
