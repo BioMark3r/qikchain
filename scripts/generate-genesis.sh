@@ -25,33 +25,27 @@ POS_BLOCK_REWARD="${POS_BLOCK_REWARD:-0x0}"
 POS_DEPLOYMENTS_FILE="${POS_DEPLOYMENTS_FILE:-$ROOT/build/deployments/pos.local.json}"
 
 VALIDATORS_DIR="${VALIDATORS_DIR:-/data/validators}"
-ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations.json}"
-TREASURY_ADDRESS="${TREASURY_ADDRESS:-0x1000000000000000000000000000000000000001}"
-FAUCET_ADDRESS="${FAUCET_ADDRESS:-0x1000000000000000000000000000000000000002}"
+ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations/devnet.json}"
+TOKEN_FILE="${TOKEN_FILE:-$ROOT/config/token.json}"
 
-TREASURY_ADDRESS="$(normalize_address "$TREASURY_ADDRESS")"
-FAUCET_ADDRESS="$(normalize_address "$FAUCET_ADDRESS")"
+QIKCHAIN_BIN="${QIKCHAIN_BIN:-$ROOT/bin/qikchain}"
 
 TEMPLATE_FILE="$ROOT/config/genesis.template.json"
 OVERLAY_FILE="$ROOT/config/consensus/${CONSENSUS}.json"
 OUTPUT_FILE="$ROOT/build/genesis.json"
 
+[[ -x "$QIKCHAIN_BIN" ]] || die "qikchain binary not found or not executable: $QIKCHAIN_BIN"
 [[ -f "$TEMPLATE_FILE" ]] || die "Template file not found: $TEMPLATE_FILE"
 [[ -f "$OVERLAY_FILE" ]] || die "Consensus overlay not found for CONSENSUS=$CONSENSUS"
 [[ -f "$ALLOCATIONS_FILE" ]] || die "Allocations file not found: $ALLOCATIONS_FILE"
+[[ -f "$TOKEN_FILE" ]] || die "Token file not found: $TOKEN_FILE"
 
 load_validators "$VALIDATORS_DIR"
 VALIDATOR_EXTRA_DATA="$(build_ibft_extra_data)"
 
-TREASURY_AMOUNT="$(load_allocation_amount treasury "$ALLOCATIONS_FILE")"
-VALIDATOR_AMOUNT="$(load_allocation_amount validators "$ALLOCATIONS_FILE")"
-FAUCET_AMOUNT="$(load_allocation_amount faucet "$ALLOCATIONS_FILE")"
-
-[[ "$TREASURY_AMOUNT" != "null" ]] || die "Missing 'treasury' key in $ALLOCATIONS_FILE"
-[[ "$VALIDATOR_AMOUNT" != "null" ]] || die "Missing 'validators' key in $ALLOCATIONS_FILE"
-[[ "$FAUCET_AMOUNT" != "null" ]] || die "Missing 'faucet' key in $ALLOCATIONS_FILE"
-
-PREALLOCATIONS="$(build_allocations_json "$ALLOCATIONS_FILE" "$VALIDATOR_AMOUNT" "$TREASURY_AMOUNT" "$FAUCET_AMOUNT" "$TREASURY_ADDRESS" "$FAUCET_ADDRESS")"
+"$QIKCHAIN_BIN" allocations verify --file "$ALLOCATIONS_FILE"
+PREALLOCATIONS="$("$QIKCHAIN_BIN" allocations render --file "$ALLOCATIONS_FILE")"
+"$QIKCHAIN_BIN" chain metadata --token "$TOKEN_FILE" --out "$ROOT/build/chain-metadata.json"
 
 TEMPLATE_RENDERED="$(render_template \
   "$TEMPLATE_FILE" \
@@ -73,6 +67,10 @@ if [[ "$CONSENSUS" == "pos" ]]; then
   if [[ "$POS_STAKING_ADDRESS" == "{{STAKING_ADDRESS}}" || "$POS_VALIDATOR_SET_ADDRESS" == "{{VALIDATOR_SET_ADDRESS}}" ]]; then
     log "WARNING: PoS deployment addresses are unresolved. Run ./scripts/deploy-pos-contracts.sh before locking final genesis."
   fi
+
+  PHASE1_REWARDS="$(jq -r '.phase1PosRewards' "$TOKEN_FILE")"
+  [[ "$PHASE1_REWARDS" == "0" ]] || die "Phase 1 PoS rewards must be 0, got: $PHASE1_REWARDS"
+  POS_BLOCK_REWARD="0x0"
 fi
 
 OVERLAY_RENDERED="$(python3 - "$OVERLAY_FILE" "$POS_BLOCK_REWARD" "$POS_STAKING_ADDRESS" "$POS_VALIDATOR_SET_ADDRESS" <<'PY'
