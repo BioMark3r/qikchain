@@ -3,8 +3,8 @@
     "engine": {
       "ibft": {
         "type": "PoA",
-        "validator_type": "ecdsa",
-        "block_time": "2s"
+        "validatorType": "ecdsa",
+        "blockTime": "2s"
       }
     }
   }
