@@ -12,5 +12,4 @@
     "minGasPrice": "{{MIN_GAS_PRICE}}"
   },
   "bootnodes": [],
-  "consensus": {}
 }
