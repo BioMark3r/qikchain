@@ -1,10 +1,11 @@
 {
-  "consensus": {
-    "type": "ibft",
-    "ibft": {
-      "validatorType": "ecdsa",
-      "mode": "static",
-      "blockTime": "2s"
+  "params": {
+    "engine": {
+      "ibft": {
+        "type": "PoA",
+        "validator_type": "ecdsa",
+        "block_time": "2s"
+      }
     }
   }
 }
