@@ -1,91 +1,37 @@
 # QikChain
 
-QikChain is a lightweight EVM-compatible blockchain built on Polygon Edge.
+QikChain is an EVM-compatible blockchain project focused on pragmatic operator UX, deterministic infrastructure, and a clean path from IBFT PoA devnets to IBFT PoS.
 
-## Features
+Core principle:
 
-- IBFT PoA (4-validator devnet)
-- Prometheus metrics
-- Dockerized build (Go 1.20)
-- JSON-RPC exposed on 8545+
-- `qikchain` CLI for Polygon Edge JSON-RPC
+> Switching consensus must be a configuration change, not a rewrite.
 
-## Build
+## Status
 
-```bash
-make all
-```
+- Phase 0: IBFT PoA devnet ✅ (working / in active iteration)
+- Phase 1: IBFT PoS devnet 🚧 (contracts + genesis wiring in progress)
+- Phase 2: Operator UX (onboarding / key mgmt / metrics) ⏳
+- Phase 3: Production hardening (backups / monitoring / upgrades) ⏳
 
-## CLI
+See: `ROADMAP.md`
 
-Default RPC endpoint is `http://127.0.0.1:8545` (override with `--rpc`).
+---
 
-```bash
-qikchain status
-qikchain block head
-qikchain block latest
-qikchain block 100
-qikchain tx 0x...
-qikchain receipt 0x...
-qikchain balance 0x... --block latest
-qikchain send --to 0x... --value 1000000000000000000 --pk 0x...
-```
+## Requirements
 
-## PoS devnet (Phase 1 enablement)
+- Go (matching repo toolchain)
+- A local environment capable of running your nodes (Linux/WSL recommended)
 
-QikChain now supports a PoS-oriented IBFT devnet flow using the same network scripts with a consensus/config flip.
+Optional (only needed for PoS contract deployment tooling if you use Foundry):
+- Foundry (`cast`)
 
-### Prerequisites
+---
 
-- `jq`, `curl`
-- Foundry (`cast`, `forge`) for contract deployment and bootstrap scripts
+## Quick Start (PoA Devnet)
 
-### Flow
+### 1) Build the CLI
 
-1. Generate PoS genesis:
+If you have a Makefile target, use it. Otherwise:
 
 ```bash
-CONSENSUS=pos ./scripts/generate-genesis.sh
-```
-
-> If `build/deployments/pos.local.json` does not have deployed addresses yet, genesis generation keeps placeholders and prints a warning.
-
-2. Start network (existing script):
-
-```bash
-CONSENSUS=pos ./scripts/devnet-ibft4.sh
-```
-
-3. Deploy PoS system contracts:
-
-```bash
-export POS_DEPLOYER_PK=0x...
-./scripts/deploy-pos-contracts.sh
-```
-
-4. Bootstrap validators:
-
-```bash
-# example if operator keys are needed:
-# export OPERATOR0_PK=0x...
-./scripts/bootstrap-pos-validators.sh
-```
-
-5. Validate smoke checks:
-
-```bash
-./scripts/pos-smoke.sh
-```
-
-### Optional convenience wrapper
-
-```bash
-export POS_DEPLOYER_PK=0x...
-./scripts/pos-devnet-up.sh
-```
-
-### Config files
-
-- `config/pos.contracts.json`: PoS system contract deployment + init parameters
-- `config/pos.bootstrap.json`: initial operator bootstrap input (operator, payout, consensus key, stake)
-- `build/deployments/pos.local.json`: generated deployment record consumed by genesis and bootstrap scripts
+go build -o ./bin/qikchain ./cmd/qikchain
