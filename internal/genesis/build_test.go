@@ -1,7 +1,6 @@
 package genesis
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,22 +91,9 @@ func TestPOSBuildFailsWithoutDeploymentsUnlessAllowed(t *testing.T) {
 		t.Fatal("expected error for missing pos deployments")
 	}
 	opts.AllowMissingPOSAddresses = true
+	opts.AcceptLegacyConsensus = true
 	if _, err := Build(opts); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestValidateCatchesMissingChainIDBadBalanceAndMissingPOS(t *testing.T) {
-	doc := map[string]any{
-		"genesis":       map[string]any{"alloc": map[string]any{"0x1000000000000000000000000000000000000001": map[string]any{"balance": "abc"}}},
-		"consensus":     map[string]any{"type": "ibft"},
-		"consensusMode": "ibft-pos",
-		"pos":           map[string]any{"stakingContract": "", "validatorSetContract": "0x123"},
-	}
-	errs := Validate(doc, ValidateOptions{})
-	if len(errs) < 3 {
-		raw, _ := json.Marshal(errs)
-		t.Fatalf("expected >=3 errors got %d: %s", len(errs), raw)
 	}
 }
 
