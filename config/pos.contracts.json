@@ -1,0 +1,22 @@
+{
+  "staking": {
+    "contract": "QikStaking",
+    "constructorArgs": [
+      "{{POS_DEPLOYER_ADDRESS}}",
+      "1000000000000000000",
+      50,
+      86400
+    ],
+    "init": {
+      "minStake": "1000000000000000000",
+      "maxValidators": 50,
+      "unbondingPeriod": 86400
+    }
+  },
+  "validatorSet": {
+    "contract": "QikValidatorSet",
+    "constructorArgs": [
+      "{{STAKING_ADDRESS}}"
+    ]
+  }
+}

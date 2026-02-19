@@ -22,6 +22,7 @@ BLOCK_GAS_LIMIT="${BLOCK_GAS_LIMIT:-0x1c9c380}"
 MIN_GAS_PRICE="${MIN_GAS_PRICE:-0}"
 BASE_FEE_ENABLED="${BASE_FEE_ENABLED:-false}"
 POS_BLOCK_REWARD="${POS_BLOCK_REWARD:-0x0}"
+POS_DEPLOYMENTS_FILE="${POS_DEPLOYMENTS_FILE:-$ROOT/build/deployments/pos.local.json}"
 
 VALIDATORS_DIR="${VALIDATORS_DIR:-/data/validators}"
 ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations.json}"
@@ -61,12 +62,27 @@ TEMPLATE_RENDERED="$(render_template \
   "$VALIDATOR_EXTRA_DATA" \
   "$PREALLOCATIONS")"
 
-OVERLAY_RENDERED="$(python3 - "$OVERLAY_FILE" "$POS_BLOCK_REWARD" <<'PY'
+POS_STAKING_ADDRESS="{{STAKING_ADDRESS}}"
+POS_VALIDATOR_SET_ADDRESS="{{VALIDATOR_SET_ADDRESS}}"
+if [[ "$CONSENSUS" == "pos" ]]; then
+  if [[ -f "$POS_DEPLOYMENTS_FILE" ]]; then
+    POS_STAKING_ADDRESS="$(jq -r '.staking.address // "{{STAKING_ADDRESS}}"' "$POS_DEPLOYMENTS_FILE")"
+    POS_VALIDATOR_SET_ADDRESS="$(jq -r '.validatorSet.address // "{{VALIDATOR_SET_ADDRESS}}"' "$POS_DEPLOYMENTS_FILE")"
+  fi
+
+  if [[ "$POS_STAKING_ADDRESS" == "{{STAKING_ADDRESS}}" || "$POS_VALIDATOR_SET_ADDRESS" == "{{VALIDATOR_SET_ADDRESS}}" ]]; then
+    log "WARNING: PoS deployment addresses are unresolved. Run ./scripts/deploy-pos-contracts.sh before locking final genesis."
+  fi
+fi
+
+OVERLAY_RENDERED="$(python3 - "$OVERLAY_FILE" "$POS_BLOCK_REWARD" "$POS_STAKING_ADDRESS" "$POS_VALIDATOR_SET_ADDRESS" <<'PY'
 import pathlib
 import sys
 
 overlay = pathlib.Path(sys.argv[1]).read_text()
 overlay = overlay.replace("{{POS_BLOCK_REWARD}}", sys.argv[2])
+overlay = overlay.replace("{{STAKING_ADDRESS}}", sys.argv[3])
+overlay = overlay.replace("{{VALIDATOR_SET_ADDRESS}}", sys.argv[4])
 print(overlay)
 PY
 )"
