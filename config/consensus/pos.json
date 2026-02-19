@@ -1,25 +1,21 @@
 {
-  "consensusMode": "ibft-pos",
-  "consensus": {
-    "type": "ibft",
-    "ibft": {
-      "validatorType": "ecdsa",
-      "mode": "stake",
-      "epochSize": 100,
-      "blockTime": "2s",
-      "staking": {
-        "enabled": true,
-        "contract": "{{STAKING_ADDRESS}}"
-      },
-      "validatorSetContract": "{{VALIDATOR_SET_ADDRESS}}",
-      "blockRewards": {
-        "enabled": true,
-        "rewardPerBlock": "{{POS_BLOCK_REWARD}}"
+  "params": {
+    "engine": {
+      "ibft": {
+        "type": "PoS",
+        "validator_type": "ecdsa",
+        "block_time": "2s",
+        "epoch_size": 100,
+        "staking": {
+          "enabled": true,
+          "contract": "{{STAKING_ADDRESS}}"
+        },
+        "validator_set_contract": "{{VALIDATOR_SET_ADDRESS}}",
+        "block_rewards": {
+          "enabled": false,
+          "reward_per_block": "0"
+        }
       }
     }
-  },
-  "pos": {
-    "validatorSetContract": "{{VALIDATOR_SET_ADDRESS}}",
-    "stakingContract": "{{STAKING_ADDRESS}}"
   }
 }
