@@ -35,3 +35,19 @@ If you have a Makefile target, use it. Otherwise:
 
 ```bash
 go build -o ./bin/qikchain ./cmd/qikchain
+
+## Startup: 4-node IBFT Devnet (PoA or PoS)
+
+We provide a single startup script for a 4-node local devnet. It is parameterized so switching consensus is a config change:
+
+- `CONSENSUS=poa` → IBFT PoA
+- `CONSENSUS=pos` → IBFT PoS (Phase 1)
+
+### Prereqs
+
+Build the CLI and ensure the Polygon Edge binary exists:
+
+```bash
+go build -o ./bin/qikchain ./cmd/qikchain
+# ensure ./bin/polygon-edge exists (repo-managed or built separately)
+
