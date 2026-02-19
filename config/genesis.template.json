@@ -11,5 +11,5 @@
     "chainID": "{{CHAIN_ID}}",
     "minGasPrice": "{{MIN_GAS_PRICE}}"
   },
-  "bootnodes": [],
+  "bootnodes": []
 }
