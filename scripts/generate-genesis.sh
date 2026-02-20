@@ -21,7 +21,8 @@ POS_DEPLOYMENTS_FILE="${POS_DEPLOYMENTS_FILE:-$ROOT/build/deployments/pos.local.
 ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations/${ENVIRONMENT}.json}"
 TOKEN_FILE="${TOKEN_FILE:-$ROOT/config/token.json}"
 QIKCHAIN_BIN="${QIKCHAIN_BIN:-$ROOT/bin/qikchain}"
-OUT_FILE="${OUTPUT_FILE:-$ROOT/build/genesis.json}"
+CHAIN_OUT_FILE="${CHAIN_OUTPUT_FILE:-${OUTPUT_FILE:-$ROOT/build/chain.json}}"
+GENESIS_OUT_FILE="${GENESIS_OUTPUT_FILE:-$ROOT/build/genesis-eth.json}"
 META_OUT_FILE="${METADATA_FILE:-$ROOT/build/chain-metadata.json}"
 
 [[ -x "$QIKCHAIN_BIN" ]] || { echo "qikchain binary not found or not executable: $QIKCHAIN_BIN" >&2; exit 1; }
@@ -35,7 +36,8 @@ cmd=("$QIKCHAIN_BIN" genesis build
   --min-gas-price "$MIN_GAS_PRICE"
   --base-fee-enabled "$BASE_FEE_ENABLED"
   --pos-deployments "$POS_DEPLOYMENTS_FILE"
-  --out "$OUT_FILE"
+  --out-chain "$CHAIN_OUT_FILE"
+  --out-genesis "$GENESIS_OUT_FILE"
   --metadata-out "$META_OUT_FILE")
 
 if [[ -n "$CHAIN_ID" ]]; then
@@ -43,11 +45,12 @@ if [[ -n "$CHAIN_ID" ]]; then
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
-  cmd+=(--out /tmp/qikchain.genesis.dryrun.json --metadata-out /tmp/qikchain.meta.dryrun.json)
+  cmd+=(--out-chain /tmp/qikchain.chain.dryrun.json --out-genesis /tmp/qikchain.genesis-eth.dryrun.json --metadata-out /tmp/qikchain.meta.dryrun.json)
 fi
 
 "${cmd[@]}"
 
 if [[ "$DRY_RUN" == "1" ]]; then
-  cat /tmp/qikchain.genesis.dryrun.json
+  cat /tmp/qikchain.chain.dryrun.json
+  cat /tmp/qikchain.genesis-eth.dryrun.json
 fi

@@ -6,48 +6,30 @@ Core principle:
 
 > Switching consensus must be a configuration change, not a rewrite.
 
-## Status
-
-- Phase 0: IBFT PoA devnet ✅ (working / in active iteration)
-- Phase 1: IBFT PoS devnet 🚧 (contracts + genesis wiring in progress)
-- Phase 2: Operator UX (onboarding / key mgmt / metrics) ⏳
-- Phase 3: Production hardening (backups / monitoring / upgrades) ⏳
-
-See: `ROADMAP.md`
-
----
-
-## Requirements
-
-- Go (matching repo toolchain)
-- A local environment capable of running your nodes (Linux/WSL recommended)
-
-Optional (only needed for PoS contract deployment tooling if you use Foundry):
-- Foundry (`cast`)
-
----
-
-## Quick Start (PoA Devnet)
-
-### 1) Build the CLI
-
-If you have a Makefile target, use it. Otherwise:
-
-```bash
-go build -o ./bin/qikchain ./cmd/qikchain
-
 ## Startup: 4-node IBFT Devnet (PoA or PoS)
 
-We provide a single startup script for a 4-node local devnet. It is parameterized so switching consensus is a config change:
-
-- `CONSENSUS=poa` → IBFT PoA
-- `CONSENSUS=pos` → IBFT PoS (Phase 1)
-
-### Prereqs
-
-Build the CLI and ensure the Polygon Edge binary exists:
+Build the CLI first:
 
 ```bash
 go build -o ./bin/qikchain ./cmd/qikchain
-# ensure ./bin/polygon-edge exists (repo-managed or built separately)
+```
 
+Then run devnet:
+
+```bash
+INSECURE_SECRETS=1 RESET=1 CONSENSUS=poa ./scripts/devnet-ibft4.sh
+```
+
+Notes:
+
+- `qikchain genesis build` now produces split outputs:
+  - `build/chain.json` (Polygon Edge chain config)
+  - `build/genesis-eth.json` (Ethereum-style genesis)
+- `build/chain.json` contains `"genesis"` as a string path to `build/genesis-eth.json`.
+- This Polygon Edge build exposes metrics with `--prometheus` (not `--metrics`).
+- `INSECURE_SECRETS=1` is **dev-only** and should not be used in production.
+
+PoS config remains a parameter flip:
+
+- `CONSENSUS=poa` → IBFT PoA
+- `CONSENSUS=pos` → IBFT PoS
