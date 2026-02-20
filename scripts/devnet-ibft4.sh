@@ -203,7 +203,7 @@ start_node() {
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
-        --metrics "127.0.0.1:$metrics" \
+        --prometheus "127.0.0.1:$metrics" \
         --bootnode "$bootnode"
     else
       "$EDGE_BIN" server \
@@ -212,7 +212,7 @@ start_node() {
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
-        --metrics "127.0.0.1:$metrics"
+        --prometheus "127.0.0.1:$metrics"
     fi
   ) >"$log_file" 2>&1 &
 
