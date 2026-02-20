@@ -1,12 +1,21 @@
 .DEFAULT_GOAL := help
 
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -eu -o pipefail -c
+
 GO ?= go
 GOFLAGS ?= -buildvcs=false
 
 ROOT := $(abspath $(CURDIR))
+ROOT := $(strip $(ROOT))
 BIN_DIR := $(ROOT)/bin
 BUILD_DIR := $(ROOT)/build
 DATA_DIR := $(ROOT)/.data
+
+BUILD_TARGETS := build-qikchain
+ifneq ($(wildcard cmd/qikchaind),)
+BUILD_TARGETS += build-qikchaind
+endif
 
 QIKCHAIN_BIN := $(BIN_DIR)/qikchain
 QIKCHAIND_BIN := $(BIN_DIR)/qikchaind
@@ -24,10 +33,16 @@ ENV ?= devnet
 POS_DEPLOYMENTS ?= build/deployments/pos.local.json
 ALLOCATIONS_FILE ?= config/allocations/$(ENV).json
 
-.PHONY: help build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
+.PHONY: help print-vars build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
 	reset reset-poa reset-pos doctor
+
+print-vars:
+	@echo "ROOT=[$(ROOT)]"
+	@echo "BIN_DIR=[$(BIN_DIR)]"
+	@echo "BUILD_DIR=[$(BUILD_DIR)]"
+	@echo "DATA_DIR=[$(DATA_DIR)]"
 
 help:
 	@echo "QikChain developer Make targets"
@@ -79,7 +94,7 @@ help:
 	@echo "  - INSECURE_SECRETS is for local/dev usage only."
 	@echo "  - Polygon Edge metrics flag is --prometheus; startup script already handles compatibility."
 
-build: build-qikchain build-qikchaind build-edge
+build: $(BUILD_TARGETS) build-edge
 
 build-qikchain:
 	@echo "==> Building qikchain"
@@ -107,7 +122,7 @@ build-edge:
 
 clean:
 	@echo "==> Cleaning build artifacts"
-	@rm -rf "$(BUILD_DIR)"/*
+	@rm -rf "$(BUILD_DIR)"
 	@if [ "$(RESET)" = "1" ]; then \
 		echo "==> RESET=1, removing $(DATA_DIR)/ibft4"; \
 		rm -rf "$(DATA_DIR)/ibft4"; \
