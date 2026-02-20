@@ -1,0 +1,116 @@
+services:
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qikchain-devnet:local
+    container_name: qikchain-node1
+    entrypoint: ["/app/scripts/docker-devnet-entrypoint.sh"]
+    environment:
+      NODE_NAME: node1
+      NODE_HOSTNAME: node1
+      NODE_DATA_DIR: /data/node1
+      RPC_PORT: "8545"
+      GRPC_PORT: "9632"
+      P2P_PORT: "1478"
+      METRICS_PORT: "9090"
+      CONSENSUS: ${CONSENSUS:-poa}
+      ENV_NAME: ${ENV_NAME:-devnet}
+      CHAIN_ID: ${CHAIN_ID:-100}
+      INSECURE_SECRETS: "1"
+    volumes:
+      - devnet_build:/app/build
+      - node1_data:/data/node1
+    ports:
+      - "8545:8545"
+      - "9632:9632"
+      - "1478:1478"
+      - "9090:9090"
+
+  node2:
+    image: qikchain-devnet:local
+    container_name: qikchain-node2
+    entrypoint: ["/app/scripts/docker-devnet-entrypoint.sh"]
+    depends_on:
+      - node1
+    environment:
+      NODE_NAME: node2
+      NODE_HOSTNAME: node2
+      NODE_DATA_DIR: /data/node2
+      RPC_PORT: "8546"
+      GRPC_PORT: "9633"
+      P2P_PORT: "1479"
+      METRICS_PORT: "9091"
+      CONSENSUS: ${CONSENSUS:-poa}
+      ENV_NAME: ${ENV_NAME:-devnet}
+      CHAIN_ID: ${CHAIN_ID:-100}
+      INSECURE_SECRETS: "1"
+    volumes:
+      - devnet_build:/app/build
+      - node2_data:/data/node2
+    ports:
+      - "8546:8546"
+      - "9633:9633"
+      - "1479:1479"
+      - "9091:9091"
+
+  node3:
+    image: qikchain-devnet:local
+    container_name: qikchain-node3
+    entrypoint: ["/app/scripts/docker-devnet-entrypoint.sh"]
+    depends_on:
+      - node1
+    environment:
+      NODE_NAME: node3
+      NODE_HOSTNAME: node3
+      NODE_DATA_DIR: /data/node3
+      RPC_PORT: "8547"
+      GRPC_PORT: "9634"
+      P2P_PORT: "1480"
+      METRICS_PORT: "9092"
+      CONSENSUS: ${CONSENSUS:-poa}
+      ENV_NAME: ${ENV_NAME:-devnet}
+      CHAIN_ID: ${CHAIN_ID:-100}
+      INSECURE_SECRETS: "1"
+    volumes:
+      - devnet_build:/app/build
+      - node3_data:/data/node3
+    ports:
+      - "8547:8547"
+      - "9634:9634"
+      - "1480:1480"
+      - "9092:9092"
+
+  node4:
+    image: qikchain-devnet:local
+    container_name: qikchain-node4
+    entrypoint: ["/app/scripts/docker-devnet-entrypoint.sh"]
+    depends_on:
+      - node1
+    environment:
+      NODE_NAME: node4
+      NODE_HOSTNAME: node4
+      NODE_DATA_DIR: /data/node4
+      RPC_PORT: "8548"
+      GRPC_PORT: "9635"
+      P2P_PORT: "1481"
+      METRICS_PORT: "9093"
+      CONSENSUS: ${CONSENSUS:-poa}
+      ENV_NAME: ${ENV_NAME:-devnet}
+      CHAIN_ID: ${CHAIN_ID:-100}
+      INSECURE_SECRETS: "1"
+    volumes:
+      - devnet_build:/app/build
+      - node4_data:/data/node4
+    ports:
+      - "8548:8548"
+      - "9635:9635"
+      - "1481:1481"
+      - "9093:9093"
+
+volumes:
+  devnet_build:
+  node1_data:
+  node2_data:
+  node3_data:
+  node4_data:

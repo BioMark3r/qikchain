@@ -187,6 +187,35 @@ Scripts:
 INSECURE_SECRETS=1 RESET=1 CONSENSUS=poa ./scripts/devnet-ibft4.sh
 ```
 
+### Docker Compose devnet (4-node IBFT)
+
+Use the containerized devnet when you want a reproducible 4-node network with persistent named volumes:
+
+```bash
+docker compose -f docker-compose.devnet.yml up --build
+```
+
+RPC endpoints from host:
+
+- node1: `http://localhost:8545`
+- node2: `http://localhost:8546`
+- node3: `http://localhost:8547`
+- node4: `http://localhost:8548`
+
+Quick check peer connectivity:
+
+```bash
+curl -s -X POST http://localhost:8545 \
+  -H "content-type: application/json" \
+  --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"net_peerCount\",\"params\":[]}"
+```
+
+Reset the docker devnet (removes named volumes and chain state):
+
+```bash
+docker compose -f docker-compose.devnet.yml down -v
+```
+
 ### Start PoS
 
 ```bash
