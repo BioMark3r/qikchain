@@ -6,7 +6,8 @@ SHELL := /usr/bin/env bash
 GO ?= go
 GOFLAGS ?= -buildvcs=false
 
-ROOT := $(abspath $(CURDIR))
+MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+ROOT := $(patsubst %/,%,$(MAKEFILE_DIR))
 ROOT := $(strip $(ROOT))
 BIN_DIR := $(ROOT)/bin
 BUILD_DIR := $(ROOT)/build
@@ -33,8 +34,9 @@ ENV ?= devnet
 POS_DEPLOYMENTS ?= build/deployments/pos.local.json
 ALLOCATIONS_FILE ?= config/allocations/$(ENV).json
 
-ifneq ($(words $(ROOT)),1)
-$(error ROOT contains spaces or multiple words: [$(ROOT)]. Fix ROOT definition to use $(CURDIR) / Makefile functions only.)
+# Guard against ROOT being accidentally duplicated into multiple absolute paths
+ifneq ($(words $(filter /mnt/%,$(ROOT))),1)
+$(error ROOT appears malformed (multiple absolute paths detected): [$(ROOT)])
 endif
 
 .PHONY: help print-vars build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
@@ -43,10 +45,11 @@ endif
 	reset reset-poa reset-pos doctor
 
 print-vars:
-	@echo "ROOT=[$(ROOT)]"
-	@echo "BIN_DIR=[$(BIN_DIR)]"
-	@echo "BUILD_DIR=[$(BUILD_DIR)]"
-	@echo "DATA_DIR=[$(DATA_DIR)]"
+	@printf 'ROOT=[%s]\n' '$(ROOT)'
+	@printf 'BIN_DIR=[%s]\n' '$(BIN_DIR)'
+	@printf 'BUILD_DIR=[%s]\n' '$(BUILD_DIR)'
+	@printf 'DATA_DIR=[%s]\n' '$(DATA_DIR)'
+	@printf 'CURDIR=[%s]\n' '$(CURDIR)'
 
 help:
 	@echo "QikChain developer Make targets"
