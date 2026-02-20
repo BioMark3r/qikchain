@@ -294,25 +294,22 @@ Devnet ports:
 
 ## CI / Health Checks
 
-A simple CI-style check can run:
-
-1) Start devnet
-2) Run status in JSON mode
-3) Assert `.ok == true` and `.sealing == true`
-4) Stop devnet
-
-Example (local):
+Run the dedicated CI healthcheck locally:
 
 ```bash
-set -euo pipefail
-
-INSECURE_SECRETS=1 RESET=1 CONSENSUS=poa ./scripts/devnet-ibft4.sh
-sleep 3
-
-JSON=1 ./scripts/devnet-ibft4-status.sh | jq -e '.ok == true and .sealing == true'
-
-./scripts/devnet-ibft4-stop.sh
+bash scripts/ci/healthcheck-devnet.sh
 ```
+
+What it validates:
+
+1) Starts a fresh PoA IBFT devnet (`INSECURE_SECRETS=1 RESET=1 CONSENSUS=poa`)
+2) Waits for node1 RPC readiness
+3) Polls `JSON=1 ./scripts/devnet-ibft4-status.sh` until:
+   - `.ok == true`
+   - `.sealing == true`
+   - `node1.rpc.peerCountHex >= 0x1` when available
+4) Prints diagnostics on failure (status JSON, node1 log tail, listener ports)
+5) Always stops devnet on exit (success or failure)
 
 ---
 

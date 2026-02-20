@@ -1,0 +1,48 @@
+name: Devnet Healthcheck
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  devnet-healthcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.20.x"
+          cache: true
+
+      - name: Ensure jq
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends jq
+          fi
+          jq --version
+
+      - name: Build qikchain
+        run: |
+          mkdir -p bin
+          go build -o ./bin/qikchain ./cmd/qikchain
+
+      - name: Build polygon-edge
+        run: |
+          make edge
+
+      - name: Verify binaries
+        run: |
+          test -x ./bin/qikchain || { echo "missing qikchain binary at ./bin/qikchain"; exit 1; }
+          test -x ./bin/polygon-edge || { echo "missing polygon-edge binary at ./bin/polygon-edge (run 'make edge' locally)"; exit 1; }
+          ./bin/qikchain --help >/dev/null
+          ./bin/polygon-edge version
+
+      - name: Run devnet healthcheck
+        run: |
+          bash scripts/ci/healthcheck-devnet.sh
