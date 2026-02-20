@@ -45,7 +45,8 @@ MIN_GAS_PRICE="${MIN_GAS_PRICE:-0}"
 BASE_FEE_ENABLED="${BASE_FEE_ENABLED:-false}"
 
 # Files
-GENESIS_OUT="${GENESIS_OUT:-$ROOT/build/genesis.json}"
+CHAIN_OUT="${CHAIN_OUT:-$ROOT/build/chain.json}"
+GENESIS_ETH_OUT="${GENESIS_ETH_OUT:-$ROOT/build/genesis-eth.json}"
 METADATA_OUT="${METADATA_OUT:-$ROOT/build/chain-metadata.json}"
 ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations/devnet.json}"
 TOKEN_FILE="${TOKEN_FILE:-$ROOT/config/token.json}"
@@ -59,6 +60,14 @@ METRICS_PORTS=(9090 9091 9092 9093)
 
 # Node dirs
 NODE_DIRS=("$NET_DIR/node1" "$NET_DIR/node2" "$NET_DIR/node3" "$NET_DIR/node4")
+
+METRICS_FLAG="--prometheus"
+if "$EDGE_BIN" server --help 2>&1 | rg -q -- "--prometheus"; then
+  METRICS_FLAG="--prometheus"
+elif "$EDGE_BIN" server --help 2>&1 | rg -q -- "--metrics"; then
+  METRICS_FLAG="--metrics"
+fi
+
 
 log() { echo "[$(date +"%H:%M:%S")] $*"; }
 
@@ -137,6 +146,8 @@ get_node1_bootnode_addr() {
 
 build_genesis() {
   log "Building genesis via CLI (consensus=$CONSENSUS env=$ENV_NAME chainId=$CHAIN_ID)"
+  log "Chain output: $CHAIN_OUT"
+  log "Eth genesis output: $GENESIS_ETH_OUT"
   local args=(
     genesis build
     --consensus "$CONSENSUS"
@@ -147,7 +158,8 @@ build_genesis() {
     --base-fee-enabled "$BASE_FEE_ENABLED"
     --allocations "$ALLOCATIONS_FILE"
     --token "$TOKEN_FILE"
-    --out "$GENESIS_OUT"
+    --out-chain "$CHAIN_OUT"
+    --out-genesis "$GENESIS_ETH_OUT"
     --metadata-out "$METADATA_OUT"
   )
 
@@ -162,7 +174,7 @@ build_genesis() {
   fi
 
   "$QIKCHAIN_BIN" "${args[@]}"
-  "$QIKCHAIN_BIN" genesis validate --file "$GENESIS_OUT"
+  "$QIKCHAIN_BIN" genesis validate --chain "$CHAIN_OUT"
 }
 
 start_node() {
@@ -191,7 +203,7 @@ start_node() {
 
   log "Starting node$node_num (rpc=$rpc p2p=$p2p metrics=$metrics) ..."
   # Note: Adjust flags if your polygon-edge build differs.
-  # Common flags include: --data-dir, --chain, --grpc-address, --jsonrpc, --libp2p, --seal, --metrics
+  # Common flags include: --data-dir, --chain, --grpc-address, --jsonrpc, --libp2p, --seal, --prometheus
   #
   # We keep it minimal + explicit port bindings.
   (
@@ -199,20 +211,20 @@ start_node() {
     if [[ -n "$bootnode" ]]; then
       "$EDGE_BIN" server \
         --data-dir "$dir" \
-        --chain "$GENESIS_OUT" \
+        --chain "$CHAIN_OUT" \
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
-        --prometheus "127.0.0.1:$metrics" \
+        ${METRICS_FLAG} "127.0.0.1:$metrics" \
         --bootnode "$bootnode"
     else
       "$EDGE_BIN" server \
         --data-dir "$dir" \
-        --chain "$GENESIS_OUT" \
+        --chain "$CHAIN_OUT" \
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
-        --prometheus "127.0.0.1:$metrics"
+        ${METRICS_FLAG} "127.0.0.1:$metrics"
     fi
   ) >"$log_file" 2>&1 &
 

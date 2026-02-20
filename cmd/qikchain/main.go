@@ -61,8 +61,8 @@ Usage:
   qikchain allocations render --file config/allocations/devnet.json
   qikchain chain metadata --token config/token.json [--out build/chain-metadata.json]
   qikchain genesis build [--consensus poa|pos --env devnet|staging|mainnet]
-  qikchain genesis validate --file build/genesis.json
-  qikchain genesis print --file build/genesis.json [--json]
+  qikchain genesis validate --chain build/chain.json [--genesis build/genesis-eth.json]
+  qikchain genesis print --file build/chain.json [--json]
 `)
 }
 
@@ -116,7 +116,9 @@ func cmdGenesisBuild(args []string) int {
 	minGasPrice := fs.String("min-gas-price", "0", "minimum gas price in wei")
 	baseFeeEnabled := fs.Bool("base-fee-enabled", false, "enable base fee")
 	posDeployments := fs.String("pos-deployments", "build/deployments/pos.local.json", "PoS deployment file path")
-	out := fs.String("out", "build/genesis.json", "output genesis path")
+	out := fs.String("out", "", "deprecated single output path (writes chain file)")
+	outChain := fs.String("out-chain", "build/chain.json", "output chain config path")
+	outGenesis := fs.String("out-genesis", "build/genesis-eth.json", "output Ethereum genesis path")
 	metadataOut := fs.String("metadata-out", "build/chain-metadata.json", "output chain metadata path")
 	strict := fs.Bool("strict", true, "strict genesis validation (fail on legacy top-level consensus keys)")
 	acceptLegacyConsensus := fs.Bool("accept-legacy-consensus", false, "temporarily accept top-level legacy consensus schema when params.engine.ibft is missing")
@@ -162,6 +164,8 @@ func cmdGenesisBuild(args []string) int {
 		BaseFeeEnabled:           *baseFeeEnabled,
 		POSDeploymentsPath:       *posDeployments,
 		OutPath:                  *out,
+		OutChainPath:             *outChain,
+		OutGenesisPath:           *outGenesis,
 		MetadataOutPath:          *metadataOut,
 		Strict:                   *strict,
 		AllowMissingPOSAddresses: *allowMissingPOS,
@@ -181,7 +185,18 @@ func cmdGenesisBuild(args []string) int {
 
 	fmt.Printf("consensus=%s env=%s chainId=%d\n", *consensus, *env, *chainID)
 	fmt.Printf("allocTotalWei=%s\n", res.TotalPremineWei)
-	fmt.Printf("genesis=%s\nmetadata=%s\n", *out, *metadataOut)
+	chainOut := *outChain
+	if chainOut == "" {
+		chainOut = *out
+	}
+	if chainOut == "" {
+		chainOut = "build/chain.json"
+	}
+	genOut := *outGenesis
+	if genOut == "" {
+		genOut = "build/genesis-eth.json"
+	}
+	fmt.Printf("chain=%s\ngenesis=%s\nmetadata=%s\n", chainOut, genOut, *metadataOut)
 	if res.POSAddressesUsed {
 		fmt.Printf("pos.staking=%s\npos.validatorSet=%s\n", res.POSAddresses.Staking, res.POSAddresses.ValidatorSet)
 	}
@@ -191,39 +206,70 @@ func cmdGenesisBuild(args []string) int {
 func cmdGenesisValidate(args []string) int {
 	fs := flag.NewFlagSet("genesis validate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	file := fs.String("file", "", "genesis file path")
+	file := fs.String("file", "", "genesis or chain file path (legacy)")
+	chain := fs.String("chain", "", "chain config file path")
+	ethGenesis := fs.String("genesis", "", "ethereum genesis file path")
 	strict := fs.Bool("strict", true, "strict genesis validation (fail on legacy top-level consensus keys)")
 	acceptLegacyConsensus := fs.Bool("accept-legacy-consensus", false, "temporarily accept top-level legacy consensus schema when params.engine.ibft is missing")
 	allowMissingPOS := fs.Bool("allow-missing-pos-addresses", false, "allow unresolved PoS addresses")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *file == "" {
-		fmt.Fprintln(os.Stderr, "genesis validate: --file is required")
-		return 2
+
+	validateDoc := func(label, path string, opts genesis.ValidateOptions) (genesis.ValidateResult, bool) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "genesis validate: failed to read %s: %v\n", label, err)
+			return genesis.ValidateResult{}, false
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(data, &doc); err != nil {
+			fmt.Fprintf(os.Stderr, "genesis validate: invalid JSON in %s: %v\n", label, err)
+			return genesis.ValidateResult{}, false
+		}
+		return genesis.Validate(doc, opts), true
 	}
-	data, err := os.ReadFile(*file)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "genesis validate:", err)
-		return 1
+
+	opts := genesis.ValidateOptions{AllowMissingPOSAddresses: *allowMissingPOS, Strict: *strict, AcceptLegacyConsensus: *acceptLegacyConsensus}
+	results := make([]genesis.ValidateResult, 0, 2)
+
+	if *chain != "" {
+		res, ok := validateDoc("chain", *chain, opts)
+		if !ok {
+			return 1
+		}
+		results = append(results, res)
 	}
-	var doc map[string]any
-	if err := json.Unmarshal(data, &doc); err != nil {
-		fmt.Fprintln(os.Stderr, "genesis validate: invalid JSON:", err)
-		return 1
+	if *ethGenesis != "" {
+		res, ok := validateDoc("genesis", *ethGenesis, opts)
+		if !ok {
+			return 1
+		}
+		results = append(results, res)
 	}
-	res := genesis.Validate(doc, genesis.ValidateOptions{
-		AllowMissingPOSAddresses: *allowMissingPOS,
-		Strict:                   *strict,
-		AcceptLegacyConsensus:    *acceptLegacyConsensus,
-	})
-	for _, w := range res.Warnings {
-		fmt.Fprintln(os.Stderr, "warning:", w)
+	if *chain == "" && *ethGenesis == "" {
+		if *file == "" {
+			fmt.Fprintln(os.Stderr, "genesis validate: provide --chain (and optionally --genesis), or --file")
+			return 2
+		}
+		res, ok := validateDoc("file", *file, opts)
+		if !ok {
+			return 1
+		}
+		results = append(results, res)
 	}
-	if len(res.Errors) > 0 {
+
+	hasErr := false
+	for _, res := range results {
+		for _, w := range res.Warnings {
+			fmt.Fprintln(os.Stderr, "warning:", w)
+		}
 		for _, e := range res.Errors {
 			fmt.Fprintln(os.Stderr, "-", e)
+			hasErr = true
 		}
+	}
+	if hasErr {
 		return 1
 	}
 	fmt.Println("genesis validation: PASS")

@@ -26,6 +26,8 @@ type BuildOptions struct {
 	BaseFeeEnabled           bool
 	POSDeploymentsPath       string
 	OutPath                  string
+	OutChainPath             string
+	OutGenesisPath           string
 	MetadataOutPath          string
 	Strict                   bool
 	AllowMissingPOSAddresses bool
@@ -40,6 +42,8 @@ type POSAddresses struct {
 
 type BuildResult struct {
 	GenesisJSON      []byte
+	ChainJSON        []byte
+	EthGenesisJSON   []byte
 	MetadataJSON     []byte
 	TotalPremineWei  string
 	POSAddresses     POSAddresses
@@ -117,14 +121,25 @@ func Build(opts BuildOptions) (BuildResult, error) {
 		return res, err
 	}
 
-	genesis := DeepMerge(base, overlay)
-	removeForbiddenTopLevelKeys(genesis)
-	ensureParamsEngineIBFT(genesis, overlay)
-	v := Validate(genesis, ValidateOptions{
+	combined := DeepMerge(base, overlay)
+	removeForbiddenTopLevelKeys(combined)
+	ensureParamsEngineIBFT(combined, overlay)
+
+	ethGenesis, _ := combined["genesis"].(map[string]any)
+	if ethGenesis == nil {
+		return res, fmt.Errorf("genesis object is required")
+	}
+	chainDoc := cloneMap(combined)
+	chainDoc["genesis"] = "__GENESIS_PATH__"
+
+	v := ValidateChainConfig(chainDoc, ValidateOptions{
 		AllowMissingPOSAddresses: opts.AllowMissingPOSAddresses,
 		Strict:                   opts.Strict,
 		AcceptLegacyConsensus:    opts.AcceptLegacyConsensus,
 	})
+	ethValidation := ValidateEthereumGenesis(ethGenesis)
+	v.Warnings = append(v.Warnings, ethValidation.Warnings...)
+	v.Errors = append(v.Errors, ethValidation.Errors...)
 	for _, w := range v.Warnings {
 		fmt.Fprintf(os.Stderr, "genesis build warning: %s\n", w)
 	}
@@ -133,10 +148,19 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	}
 
 	if opts.Pretty {
-		res.GenesisJSON, err = MarshalCanonicalIndented(genesis)
+		res.EthGenesisJSON, err = MarshalCanonicalIndented(ethGenesis)
 	} else {
-		res.GenesisJSON, err = MarshalCanonical(genesis)
+		res.EthGenesisJSON, err = MarshalCanonical(ethGenesis)
 	}
+	if err != nil {
+		return res, err
+	}
+	if opts.Pretty {
+		res.ChainJSON, err = MarshalCanonicalIndented(chainDoc)
+	} else {
+		res.ChainJSON, err = MarshalCanonical(chainDoc)
+	}
+	res.GenesisJSON = res.ChainJSON
 	if err != nil {
 		return res, err
 	}
@@ -176,10 +200,44 @@ func removeForbiddenTopLevelKeys(genesis map[string]any) {
 }
 
 func WriteOutputs(opts BuildOptions, res BuildResult) error {
-	if err := os.MkdirAll(filepath.Dir(opts.OutPath), 0o755); err != nil {
+	chainPath := opts.OutChainPath
+	if chainPath == "" {
+		if opts.OutPath != "" {
+			chainPath = opts.OutPath
+		} else {
+			chainPath = filepath.Join("build", "chain.json")
+		}
+	}
+	genesisPath := opts.OutGenesisPath
+	if genesisPath == "" {
+		genesisPath = filepath.Join(filepath.Dir(chainPath), "genesis-eth.json")
+	}
+	absGenesisPath, err := filepath.Abs(genesisPath)
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(opts.OutPath, res.GenesisJSON, 0o644); err != nil {
+
+	if err := os.MkdirAll(filepath.Dir(absGenesisPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(absGenesisPath, res.EthGenesisJSON, 0o644); err != nil {
+		return err
+	}
+
+	var chainDoc map[string]any
+	if err := json.Unmarshal(res.ChainJSON, &chainDoc); err != nil {
+		return err
+	}
+	chainDoc["genesis"] = absGenesisPath
+	chainJSON, err := MarshalCanonicalIndented(chainDoc)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(chainPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(chainPath, chainJSON, 0o644); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(opts.MetadataOutPath), 0o755); err != nil {
@@ -193,7 +251,7 @@ func WriteOutputs(opts BuildOptions, res BuildResult) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(filepath.Dir(opts.OutPath), "pos-addresses.json"), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(chainPath), "pos-addresses.json"), data, 0o644); err != nil {
 			return err
 		}
 	}

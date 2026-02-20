@@ -2,6 +2,7 @@ package genesis
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -20,13 +21,20 @@ type ValidateResult struct {
 var balanceRe = regexp.MustCompile(`^[0-9]+$`)
 var addrRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
-func Validate(gen map[string]any, opts ValidateOptions) ValidateResult {
+func Validate(doc map[string]any, opts ValidateOptions) ValidateResult {
+	if _, hasAlloc := doc["alloc"]; hasAlloc {
+		return ValidateEthereumGenesis(doc)
+	}
+	return ValidateChainConfig(doc, opts)
+}
+
+func ValidateChainConfig(doc map[string]any, opts ValidateOptions) ValidateResult {
 	res := ValidateResult{Errors: make([]error, 0), Warnings: make([]string, 0)}
 
 	legacyKeys := []string{"consensus", "consensusMode", "pos", "consensusRaw"}
 	foundLegacy := make([]string, 0)
 	for _, key := range legacyKeys {
-		if _, ok := gen[key]; ok {
+		if _, ok := doc[key]; ok {
 			foundLegacy = append(foundLegacy, key)
 		}
 	}
@@ -39,7 +47,7 @@ func Validate(gen map[string]any, opts ValidateOptions) ValidateResult {
 		}
 	}
 
-	params, _ := gen["params"].(map[string]any)
+	params, _ := doc["params"].(map[string]any)
 	if params == nil {
 		res.Errors = append(res.Errors, fmt.Errorf("params object is required"))
 	} else {
@@ -60,7 +68,7 @@ func Validate(gen map[string]any, opts ValidateOptions) ValidateResult {
 			if ibft == nil {
 				legacyAccepted := false
 				if opts.AcceptLegacyConsensus {
-					cons, _ := gen["consensus"].(map[string]any)
+					cons, _ := doc["consensus"].(map[string]any)
 					if strings.EqualFold(asString(cons["type"]), "ibft") {
 						legacyAccepted = true
 						res.Warnings = append(res.Warnings, "legacy consensus schema accepted; migrate to params.engine.ibft")
@@ -80,32 +88,69 @@ func Validate(gen map[string]any, opts ValidateOptions) ValidateResult {
 		}
 	}
 
-	g, _ := gen["genesis"].(map[string]any)
-	if g == nil {
-		res.Errors = append(res.Errors, fmt.Errorf("genesis object is required"))
-	} else {
-		if _, ok := g["gasLimit"]; !ok {
-			res.Warnings = append(res.Warnings, "genesis.gasLimit is recommended")
-		}
-		alloc, _ := g["alloc"].(map[string]any)
-		if alloc == nil {
-			res.Errors = append(res.Errors, fmt.Errorf("genesis.alloc must be an object"))
+	g, existsGenesis := doc["genesis"]
+	if !existsGenesis {
+		res.Errors = append(res.Errors, fmt.Errorf("genesis string path is required"))
+		return res
+	}
+	if _, ok := g.(map[string]any); ok {
+		res.Errors = append(res.Errors, fmt.Errorf("this Polygon Edge version requires chain.json with genesis as a string path; use --out-chain/--out-genesis"))
+		return res
+	}
+	genesisPath, ok := g.(string)
+	if !ok || strings.TrimSpace(genesisPath) == "" {
+		res.Errors = append(res.Errors, fmt.Errorf("genesis must be a non-empty string path"))
+		return res
+	}
+
+	if stat, err := os.Stat(genesisPath); err == nil && !stat.IsDir() {
+		ethDoc, err := loadJSONFile(genesisPath)
+		if err != nil {
+			res.Errors = append(res.Errors, fmt.Errorf("failed to parse genesis file %q: %v", genesisPath, err))
 		} else {
-			for addr, raw := range alloc {
-				if !addrRe.MatchString(addr) {
-					res.Errors = append(res.Errors, fmt.Errorf("genesis.alloc key %q is not an address", addr))
-				}
-				entry, _ := raw.(map[string]any)
-				if entry == nil {
-					res.Errors = append(res.Errors, fmt.Errorf("genesis.alloc.%s must be object", addr))
-					continue
-				}
-				bal, _ := entry["balance"].(string)
-				if bal == "" || !balanceRe.MatchString(bal) {
-					res.Errors = append(res.Errors, fmt.Errorf("genesis.alloc.%s.balance must be numeric string", addr))
-				}
+			ev := ValidateEthereumGenesis(ethDoc)
+			res.Warnings = append(res.Warnings, ev.Warnings...)
+			res.Errors = append(res.Errors, ev.Errors...)
+		}
+	}
+
+	return res
+}
+
+func ValidateEthereumGenesis(doc map[string]any) ValidateResult {
+	res := ValidateResult{Errors: make([]error, 0), Warnings: make([]string, 0)}
+
+	alloc, _ := doc["alloc"].(map[string]any)
+	if alloc == nil {
+		res.Errors = append(res.Errors, fmt.Errorf("alloc must be an object"))
+	} else {
+		for addr, raw := range alloc {
+			if !addrRe.MatchString(addr) {
+				res.Errors = append(res.Errors, fmt.Errorf("alloc key %q is not an address", addr))
+			}
+			entry, _ := raw.(map[string]any)
+			if entry == nil {
+				res.Errors = append(res.Errors, fmt.Errorf("alloc.%s must be object", addr))
+				continue
+			}
+			bal, _ := entry["balance"].(string)
+			if bal == "" || !balanceRe.MatchString(bal) {
+				res.Errors = append(res.Errors, fmt.Errorf("alloc.%s.balance must be numeric string", addr))
 			}
 		}
+	}
+
+	if _, ok := doc["gasLimit"].(string); !ok {
+		res.Errors = append(res.Errors, fmt.Errorf("gasLimit is required"))
+	}
+	if _, ok := doc["difficulty"].(string); !ok {
+		res.Errors = append(res.Errors, fmt.Errorf("difficulty is required"))
+	}
+	if _, ok := doc["extraData"].(string); !ok {
+		res.Errors = append(res.Errors, fmt.Errorf("extraData is required"))
+	}
+	if _, ok := doc["baseFeeEnabled"].(bool); !ok {
+		res.Errors = append(res.Errors, fmt.Errorf("baseFeeEnabled is required and must be boolean"))
 	}
 
 	return res
