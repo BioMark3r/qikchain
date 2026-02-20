@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ============================================================
+# QikChain Devnet Status: IBFT 4-node
+#
+# Modes:
+#   Default: human-readable status + checks
+#   JSON=1: output a single JSON object (good for CI)
+#   LOGS=1: tail logs (last LOG_LINES per node). FOLLOW=1 to stream.
+#
+# Usage:
+#   ./scripts/devnet-ibft4-status.sh
+#   JSON=1 ./scripts/devnet-ibft4-status.sh
+#   LOGS=1 ./scripts/devnet-ibft4-status.sh
+#   LOGS=1 FOLLOW=1 ./scripts/devnet-ibft4-status.sh
+#   JSON=1 LOGS=1 ./scripts/devnet-ibft4-status.sh   # includes last lines in JSON (no follow)
+#
+# ============================================================
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+QIKCHAIN_BIN="${QIKCHAIN_BIN:-$ROOT/bin/qikchain}"
+
+DATA_ROOT="${DATA_ROOT:-$ROOT/.data}"
+NET_NAME="${NET_NAME:-ibft4}"
+NET_DIR="${NET_DIR:-$DATA_ROOT/$NET_NAME}"
+
+VERBOSE="${VERBOSE:-0}"
+NO_METRICS="${NO_METRICS:-0}"
+
+JSON_MODE="${JSON:-0}"
+LOGS_MODE="${LOGS:-0}"
+FOLLOW="${FOLLOW:-0}"
+LOG_LINES="${LOG_LINES:-50}"
+
+RPC_PORTS=(8545 8546 8547 8548)
+GRPC_PORTS=(9632 9633 9634 9635)
+P2P_PORTS=(1478 1479 1480 1481)
+METRICS_PORTS=(9090 9091 9092 9093)
+
+NODE_DIRS=("$NET_DIR/node1" "$NET_DIR/node2" "$NET_DIR/node3" "$NET_DIR/node4")
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ---------- helpers ----------
+rpc_call() {
+  local url="$1"
+  local method="$2"
+  local params="${3:-[]}"
+
+  curl -sS -X POST "$url" \
+    -H 'content-type: application/json' \
+    --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" 2>/dev/null
+}
+
+hex_to_dec() {
+  local h="$1"
+  if [[ "$h" != 0x* ]]; then
+    echo "$h"
+    return 0
+  fi
+  if have python3; then
+    python3 - <<PY
+h="$h"
+print(int(h, 16))
+PY
+  else
+    echo "$h"
+  fi
+}
+
+now_ts() {
+  if have date; then date -Is; else echo ""; fi
+}
+
+json_escape() {
+  # Escape a string for JSON (best-effort)
+  python3 - <<PY 2>/dev/null || {
+import json,sys
+print(json.dumps(sys.stdin.read()))
+PY
+}
+
+read_last_logs() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    tail -n "$LOG_LINES" "$file"
+  else
+    echo ""
+  fi
+}
+
+# ---------- data collection ----------
+# We collect everything into shell variables/arrays, then either print human or JSON.
+
+# arrays indexed 0..3
+PID=("" "" "" "")
+PID_RUNNING=("false" "false" "false" "false")
+PIDFILE_PRESENT=("false" "false" "false" "false")
+
+RPC_OK=("false" "false" "false" "false")
+RPC_BLOCK_HEX=("" "" "" "")
+RPC_BLOCK_DEC=("" "" "" "")
+RPC_PEERS_HEX=("" "" "" "")
+RPC_PEERS_DEC=("" "" "" "")
+RPC_CLIENT=("" "" "" "")
+
+METRICS_OK=("false" "false" "false" "false")
+
+LOG_SNIPPET=("" "" "" "")
+
+CHAIN_SEALING_OK="false"
+CHAIN_SEAL_FROM=""
+CHAIN_SEAL_TO=""
+
+collect_pidfiles() {
+  for i in 0 1 2 3; do
+    local dir="${NODE_DIRS[$i]}"
+    local pid_file="$dir/server.pid"
+
+    if [[ -f "$pid_file" ]]; then
+      PIDFILE_PRESENT[$i]="true"
+      local pid
+      pid="$(cat "$pid_file" 2>/dev/null || true)"
+      PID[$i]="${pid:-}"
+      if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+        PID_RUNNING[$i]="true"
+      fi
+    fi
+  done
+}
+
+collect_rpc() {
+  if ! have curl; then
+    return 0
+  fi
+
+  for i in 0 1 2 3; do
+    local url="http://127.0.0.1:${RPC_PORTS[$i]}"
+
+    local cv
+    cv="$(rpc_call "$url" "web3_clientVersion" "[]" || true)"
+    if [[ -z "$cv" ]]; then
+      RPC_OK[$i]="false"
+      continue
+    fi
+
+    RPC_OK[$i]="true"
+    if have jq; then
+      RPC_CLIENT[$i]="$(echo "$cv" | jq -r '.result // ""' 2>/dev/null || true)"
+    fi
+
+    local bn pc
+    bn="$(rpc_call "$url" "eth_blockNumber" "[]" || true)"
+    pc="$(rpc_call "$url" "net_peerCount" "[]" || true)"
+
+    if have jq; then
+      RPC_BLOCK_HEX[$i]="$(echo "$bn" | jq -r '.result // ""' 2>/dev/null || true)"
+      RPC_PEERS_HEX[$i]="$(echo "$pc" | jq -r '.result // ""' 2>/dev/null || true)"
+    fi
+
+    if [[ -n "${RPC_BLOCK_HEX[$i]}" ]]; then
+      RPC_BLOCK_DEC[$i]="$(hex_to_dec "${RPC_BLOCK_HEX[$i]}")"
+    fi
+    if [[ -n "${RPC_PEERS_HEX[$i]}" ]]; then
+      RPC_PEERS_DEC[$i]="$(hex_to_dec "${RPC_PEERS_HEX[$i]}")"
+    fi
+  done
+}
+
+collect_metrics() {
+  if [[ "$NO_METRICS" == "1" ]]; then
+    return 0
+  fi
+  if ! have curl; then
+    return 0
+  fi
+
+  for i in 0 1 2 3; do
+    local url="http://127.0.0.1:${METRICS_PORTS[$i]}/metrics"
+    local out
+    out="$(curl -sS --max-time 1 "$url" 2>/dev/null || true)"
+    if [[ -n "$out" ]]; then
+      METRICS_OK[$i]="true"
+    fi
+  done
+}
+
+collect_seal_progress() {
+  if ! have curl || ! have jq; then
+    return 0
+  fi
+  local url="http://127.0.0.1:${RPC_PORTS[0]}"
+  local a b
+  a="$(rpc_call "$url" "eth_blockNumber" "[]" | jq -r '.result // empty' 2>/dev/null || true)"
+  sleep 2
+  b="$(rpc_call "$url" "eth_blockNumber" "[]" | jq -r '.result // empty' 2>/dev/null || true)"
+
+  if [[ -n "${a:-}" && -n "${b:-}" && "$a" != "null" && "$b" != "null" ]]; then
+    CHAIN_SEAL_FROM="$(hex_to_dec "$a")"
+    CHAIN_SEAL_TO="$(hex_to_dec "$b")"
+    if [[ "$CHAIN_SEAL_TO" =~ ^[0-9]+$ && "$CHAIN_SEAL_FROM" =~ ^[0-9]+$ ]]; then
+      if [[ "$CHAIN_SEAL_TO" -gt "$CHAIN_SEAL_FROM" ]]; then
+        CHAIN_SEALING_OK="true"
+      fi
+    fi
+  fi
+}
+
+collect_logs() {
+  if [[ "$LOGS_MODE" != "1" ]]; then
+    return 0
+  fi
+  for i in 0 1 2 3; do
+    local file="${NODE_DIRS[$i]}/server.log"
+    local snippet
+    snippet="$(read_last_logs "$file")"
+    LOG_SNIPPET[$i]="$snippet"
+  done
+}
+
+# ---------- output ----------
+print_human() {
+  echo "QikChain IBFT4 status"
+  echo "  net dir: $NET_DIR"
+  echo "  qikchain: $QIKCHAIN_BIN"
+  echo "  time: $(now_ts)"
+  echo
+
+  echo "=== nodes (pid / rpc / peers / block) ==="
+  for i in 0 1 2 3; do
+    local n=$((i+1))
+    local pid="${PID[$i]}"
+    local pid_ok="${PID_RUNNING[$i]}"
+    local rpc_ok="${RPC_OK[$i]}"
+    local peers="${RPC_PEERS_DEC[$i]}"
+    local block="${RPC_BLOCK_DEC[$i]}"
+
+    local pid_str="pidfile=${PIDFILE_PRESENT[$i]} pid=${pid:-<none>} running=$pid_ok"
+    local rpc_str="rpc=$rpc_ok"
+    local blk_str="block=${block:-<n/a>}"
+    local peer_str="peers=${peers:-<n/a>}"
+
+    if [[ "$rpc_ok" == "true" && -n "${RPC_CLIENT[$i]}" ]]; then
+      echo "node$n: $pid_str | $rpc_str | $peer_str | $blk_str"
+      [[ "$VERBOSE" == "1" ]] && echo "  client: ${RPC_CLIENT[$i]}"
+    else
+      echo "node$n: $pid_str | $rpc_str | $peer_str | $blk_str"
+    fi
+
+    if [[ "$NO_METRICS" != "1" ]]; then
+      echo "  prometheus: ${METRICS_OK[$i]}"
+    fi
+  done
+
+  echo
+  echo "=== seal check (node1) ==="
+  if [[ "$CHAIN_SEALING_OK" == "true" ]]; then
+    echo "✅ sealing: ${CHAIN_SEAL_FROM} -> ${CHAIN_SEAL_TO}"
+  else
+    echo "⚠️  not advancing (or cannot check): ${CHAIN_SEAL_FROM:-<n/a>} -> ${CHAIN_SEAL_TO:-<n/a>}"
+  fi
+
+  if [[ "$LOGS_MODE" == "1" ]]; then
+    echo
+    echo "=== logs (last $LOG_LINES lines) ==="
+    for i in 0 1 2 3; do
+      local n=$((i+1))
+      local file="${NODE_DIRS[$i]}/server.log"
+      echo
+      echo "--- node$n: $file ---"
+      if [[ -f "$file" ]]; then
+        tail -n "$LOG_LINES" "$file"
+      else
+        echo "(missing)"
+      fi
+    done
+
+    if [[ "$FOLLOW" == "1" && "$JSON_MODE" != "1" ]]; then
+      echo
+      echo "=== follow logs (CTRL-C to stop) ==="
+      # follow all logs
+      tail -n 0 -f \
+        "${NODE_DIRS[0]}/server.log" \
+        "${NODE_DIRS[1]}/server.log" \
+        "${NODE_DIRS[2]}/server.log" \
+        "${NODE_DIRS[3]}/server.log" 2>/dev/null || true
+    fi
+  fi
+}
+
+print_json() {
+  # Requires jq for safe JSON building (recommended). If absent, we print minimal JSON.
+  if ! have jq; then
+    # Minimal fallback without log snippets
+    cat <<EOF
+{"ok":false,"error":"jq is required for JSON mode","time":"$(now_ts)"}
+EOF
+    exit 2
+  fi
+
+  # Build JSON arrays
+  local nodes_json
+  nodes_json="$(jq -n \
+    --arg netDir "$NET_DIR" \
+    --arg time "$(now_ts)" \
+    --arg sealing "$CHAIN_SEALING_OK" \
+    --arg sealFrom "${CHAIN_SEAL_FROM:-}" \
+    --arg sealTo "${CHAIN_SEAL_TO:-}" \
+    '{
+      time: $time,
+      netDir: $netDir,
+      sealing: ($sealing == "true"),
+      sealFrom: (if $sealFrom=="" then null else ($sealFrom|tonumber) end),
+      sealTo:   (if $sealTo=="" then null else ($sealTo|tonumber) end),
+      nodes: []
+    }')"
+
+  # Append nodes
+  for i in 0 1 2 3; do
+    local n=$((i+1))
+    local rpc_port="${RPC_PORTS[$i]}"
+    local mport="${METRICS_PORTS[$i]}"
+    local dir="${NODE_DIRS[$i]}"
+
+    local pid="${PID[$i]}"
+    local pidfile="${PIDFILE_PRESENT[$i]}"
+    local running="${PID_RUNNING[$i]}"
+    local rpc_ok="${RPC_OK[$i]}"
+    local block_hex="${RPC_BLOCK_HEX[$i]}"
+    local peers_hex="${RPC_PEERS_HEX[$i]}"
+    local client="${RPC_CLIENT[$i]}"
+    local metrics_ok="${METRICS_OK[$i]}"
+    local logs="${LOG_SNIPPET[$i]}"
+
+    nodes_json="$(echo "$nodes_json" | jq \
+      --argjson idx "$i" \
+      --arg node "node$n" \
+      --arg dir "$dir" \
+      --arg pid "$pid" \
+      --arg pidfile "$pidfile" \
+      --arg running "$running" \
+      --arg rpcOk "$rpc_ok" \
+      --arg rpcUrl "http://127.0.0.1:$rpc_port" \
+      --arg metricsOk "$metrics_ok" \
+      --arg metricsUrl "http://127.0.0.1:$mport/metrics" \
+      --arg blockHex "$block_hex" \
+      --arg peersHex "$peers_hex" \
+      --arg client "$client" \
+      --arg logs "$logs" \
+      '
+      .nodes += [{
+        name: $node,
+        dir: $dir,
+        pidfilePresent: ($pidfile == "true"),
+        pid: (if $pid=="" then null else ($pid|tonumber) end),
+        running: ($running == "true"),
+        rpc: {
+          ok: ($rpcOk == "true"),
+          url: $rpcUrl,
+          clientVersion: (if $client=="" then null else $client end),
+          blockNumberHex: (if $blockHex=="" then null else $blockHex end),
+          peerCountHex: (if $peersHex=="" then null else $peersHex end)
+        },
+        prometheus: {
+          ok: ($metricsOk == "true"),
+          url: $metricsUrl
+        },
+        logsTail: (if $logs=="" then null else $logs end)
+      }]
+      ')"
+  done
+
+  # Determine overall ok (all RPC ok + sealing recommended but not required)
+  local all_rpc_ok="true"
+  for i in 0 1 2 3; do
+    if [[ "${RPC_OK[$i]}" != "true" ]]; then all_rpc_ok="false"; fi
+  done
+
+  echo "$nodes_json" | jq --arg allRpc "$all_rpc_ok" '
+    .ok = ($allRpc == "true")
+  '
+}
+
+main() {
+  if [[ ! -x "$QIKCHAIN_BIN" ]]; then
+    if [[ "$JSON_MODE" == "1" ]]; then
+      echo "{\"ok\":false,\"error\":\"missing qikchain binary at $QIKCHAIN_BIN\"}"
+    else
+      echo "❌ missing qikchain binary at $QIKCHAIN_BIN"
+    fi
+    exit 1
+  fi
+
+  collect_pidfiles
+  collect_rpc
+  collect_metrics
+  collect_seal_progress
+  collect_logs
+
+  if [[ "$JSON_MODE" == "1" ]]; then
+    print_json
+  else
+    print_human
+  fi
+}
+
+main "$@"
