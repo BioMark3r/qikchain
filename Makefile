@@ -33,6 +33,10 @@ ENV ?= devnet
 POS_DEPLOYMENTS ?= build/deployments/pos.local.json
 ALLOCATIONS_FILE ?= config/allocations/$(ENV).json
 
+ifneq ($(words $(ROOT)),1)
+$(error ROOT contains spaces or multiple words: [$(ROOT)]. Fix ROOT definition to use $(CURDIR) / Makefile functions only.)
+endif
+
 .PHONY: help print-vars build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
