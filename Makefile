@@ -23,7 +23,7 @@ POLYGON_EDGE_BIN := $(BIN_DIR)/polygon-edge
 
 DEVNET_UP_SCRIPT ?= ./scripts/devnet-ibft4.sh
 DEVNET_DOWN_SCRIPT ?= ./scripts/devnet-ibft4-stop.sh
-DEVNET_STATUS_SCRIPT ?= $(shell [ -f ./scripts/devnet-ibft4-status.sh ] && echo ./scripts/devnet-ibft4-status.sh || echo ./scripts/devnet-ibft4-status)
+DEVNET_STATUS_SCRIPT := $(if $(wildcard ./scripts/devnet-ibft4-status.sh),./scripts/devnet-ibft4-status.sh,./scripts/devnet-ibft4-status)
 
 CONSENSUS ?= poa
 INSECURE_SECRETS ?= 1
