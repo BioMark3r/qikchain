@@ -61,6 +61,22 @@ func ValidateChainConfig(doc map[string]any, opts ValidateOptions) ValidateResul
 		}
 		if forks, ok := params["forks"].(map[string]any); !ok || forks == nil {
 			res.Errors = append(res.Errors, fmt.Errorf("params.forks must be a non-nil object"))
+		} else {
+			for name, rawFork := range forks {
+				forkObj, ok := rawFork.(map[string]any)
+				if !ok || forkObj == nil {
+					res.Errors = append(res.Errors, fmt.Errorf("params.forks.%s must be an object", name))
+					continue
+				}
+				block, exists := forkObj["block"]
+				if !exists {
+					res.Errors = append(res.Errors, fmt.Errorf("params.forks.%s.block is required", name))
+					continue
+				}
+				if !isNumericValue(block) {
+					res.Errors = append(res.Errors, fmt.Errorf("params.forks.%s.block must be numeric", name))
+				}
+			}
 		}
 
 		engine, _ := params["engine"].(map[string]any)
@@ -164,4 +180,15 @@ func ValidateEthereumGenesis(doc map[string]any) ValidateResult {
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+func isNumericValue(v any) bool {
+	switch v.(type) {
+	case float64, float32,
+		int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64:
+		return true
+	default:
+		return false
+	}
 }

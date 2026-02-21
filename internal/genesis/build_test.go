@@ -150,8 +150,16 @@ func TestGenesisBuildWritesCombinedOutput(t *testing.T) {
 		t.Fatalf("combined output must include params.forks object")
 	}
 	for _, k := range []string{"homestead", "byzantium", "constantinople", "petersburg", "istanbul", "london", "eip150", "eip155", "eip158", "quorumCalcAlignment", "txHashWithType", "londonFix"} {
-		if _, ok := forks[k]; !ok {
+		rawFork, ok := forks[k]
+		if !ok {
 			t.Fatalf("expected devnet fork %s", k)
+		}
+		forkObj, ok := rawFork.(map[string]any)
+		if !ok || forkObj == nil {
+			t.Fatalf("expected params.forks.%s to be object, got %T", k, rawFork)
+		}
+		if _, ok := forkObj["block"].(float64); !ok {
+			t.Fatalf("expected params.forks.%s.block to be numeric", k)
 		}
 	}
 	if gas, ok := genesis["gasLimit"].(string); !ok || gas == "" {

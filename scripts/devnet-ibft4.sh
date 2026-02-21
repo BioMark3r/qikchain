@@ -177,7 +177,33 @@ build_genesis() {
   fi
 
   "$QIKCHAIN_BIN" "${args[@]}"
+
+  normalize_forks_for_polygon_edge "$GENESIS_OUT"
+  normalize_forks_for_polygon_edge "$CHAIN_SPLIT_OUT"
+
   "$QIKCHAIN_BIN" genesis validate --chain "$GENESIS_OUT"
+}
+
+normalize_forks_for_polygon_edge() {
+  local target="$1"
+  if [[ ! -f "$target" ]]; then
+    return 0
+  fi
+
+  if ! command -v jq >/dev/null 2>&1; then
+    log "WARNING: jq not found; skipping params.forks normalization for $target"
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp)"
+  if jq '.params.forks |= with_entries(if (.value|type) == "number" then .value={"block":.value} else . end)' "$target" >"$tmp"; then
+    mv "$tmp" "$target"
+    log "Normalized params.forks values in $target"
+  else
+    log "WARNING: jq normalization failed for $target"
+    rm -f "$tmp"
+  fi
 }
 
 start_node() {
