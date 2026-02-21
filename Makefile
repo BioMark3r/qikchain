@@ -113,19 +113,38 @@ build-qikchaind:
 	@mkdir -p "$(BIN_DIR)"
 	$(GO) build $(GOFLAGS) -o "$(QIKCHAIND_BIN)" ./cmd/qikchaind
 
+REQUIRE_EDGE ?= 0
+EDGE_DIR := $(ROOT)/third_party/polygon-edge
+
 build-edge:
-	@if [ -x "$(POLYGON_EDGE_BIN)" ]; then \
-		echo "==> polygon-edge already present at $(POLYGON_EDGE_BIN)"; \
-	elif [ -f ./scripts/fetch-polygon-edge.sh ]; then \
-		echo "==> Attempting polygon-edge build via scripts/fetch-polygon-edge.sh"; \
-		if bash ./scripts/fetch-polygon-edge.sh && [ -d third_party/polygon-edge ]; then \
-			cd "$(ROOT)/third_party/polygon-edge" && $(GO) build -mod=mod $(GOFLAGS) -o "$(POLYGON_EDGE_BIN)" .	\		
-		else \
-			echo "==> Warning: polygon-edge fetch/build failed; continuing with qikchain only"; \
+	@bash -eu -o pipefail -c '\
+		echo "==> build-edge"; \
+		if [ -x "$(POLYGON_EDGE_BIN)" ]; then \
+			echo "==> polygon-edge already present at $(POLYGON_EDGE_BIN)"; \
+			exit 0; \
 		fi; \
-	else \
-		echo "==> Skipping polygon-edge build (no binary and no fetch script)"; \
-	fi
+		if [ -f "./scripts/fetch-polygon-edge.sh" ]; then \
+			echo "==> Fetching polygon-edge via scripts/fetch-polygon-edge.sh"; \
+			bash ./scripts/fetch-polygon-edge.sh; \
+		else \
+			echo "==> Skipping polygon-edge build (no binary and no fetch script)"; \
+			exit 0; \
+		fi; \
+		if [ ! -d "$(EDGE_DIR)" ]; then \
+			echo "==> Warning: polygon-edge dir not found at $(EDGE_DIR)"; \
+			if [ "$(REQUIRE_EDGE)" = "1" ]; then exit 1; else exit 0; fi; \
+		fi; \
+		echo "==> Building polygon-edge (go build -mod=mod)"; \
+		set +e; \
+		( cd "$(EDGE_DIR)" && $(GO) build -mod=mod $(GOFLAGS) -o "$(POLYGON_EDGE_BIN)" . ); \
+		rc=$$?; \
+		set -e; \
+		if [ $$rc -ne 0 ]; then \
+			echo "==> Warning: polygon-edge build failed (rc=$$rc)"; \
+			if [ "$(REQUIRE_EDGE)" = "1" ]; then exit $$rc; else exit 0; fi; \
+		fi; \
+		echo "==> polygon-edge built: $(POLYGON_EDGE_BIN)"; \
+	'
 
 clean:
 	@echo "==> Cleaning build artifacts"
