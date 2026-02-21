@@ -197,9 +197,40 @@ normalize_forks_for_polygon_edge() {
 
   local tmp
   tmp="$(mktemp)"
-  if jq '.params.forks |= with_entries(if (.value|type) == "number" then .value={"block":.value} else . end)' "$target" >"$tmp"; then
+  if jq '
+    .params.forks |= (
+      (. // {})
+      | with_entries(
+          select(
+            .key == "homestead" or
+            .key == "byzantium" or
+            .key == "constantinople" or
+            .key == "petersburg" or
+            .key == "istanbul" or
+            .key == "london" or
+            .key == "eip150" or
+            .key == "eip155" or
+            .key == "eip158" or
+            .key == "txHashWithType"
+          )
+          | if (.value | type) == "number" then
+              .value = {"block": .value}
+            elif (.value | type) == "object" and (.value.block | type) == "number" then
+              .value = {"block": .value.block}
+            else
+              empty
+            end
+        )
+    )
+  ' "$target" >"$tmp"; then
     mv "$tmp" "$target"
-    log "Normalized params.forks values in $target"
+    local final_keys
+    final_keys="$(jq -r '(.params.forks // {}) | keys | join(", ")' "$target")"
+    if [[ -z "$final_keys" ]]; then
+      final_keys="<none>"
+    fi
+    log "Normalized and filtered params.forks in $target"
+    log "Final params.forks keys: $final_keys"
   else
     log "WARNING: jq normalization failed for $target"
     rm -f "$tmp"
