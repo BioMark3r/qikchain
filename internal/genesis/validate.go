@@ -90,16 +90,18 @@ func ValidateChainConfig(doc map[string]any, opts ValidateOptions) ValidateResul
 
 	g, existsGenesis := doc["genesis"]
 	if !existsGenesis {
-		res.Errors = append(res.Errors, fmt.Errorf("genesis string path is required"))
+		res.Errors = append(res.Errors, fmt.Errorf("genesis field is required"))
 		return res
 	}
-	if _, ok := g.(map[string]any); ok {
-		res.Errors = append(res.Errors, fmt.Errorf("this Polygon Edge version requires chain.json with genesis as a string path; use --out-chain/--out-genesis"))
+	if embeddedGenesis, ok := g.(map[string]any); ok {
+		ev := ValidateEthereumGenesis(embeddedGenesis)
+		res.Warnings = append(res.Warnings, ev.Warnings...)
+		res.Errors = append(res.Errors, ev.Errors...)
 		return res
 	}
 	genesisPath, ok := g.(string)
 	if !ok || strings.TrimSpace(genesisPath) == "" {
-		res.Errors = append(res.Errors, fmt.Errorf("genesis must be a non-empty string path"))
+		res.Errors = append(res.Errors, fmt.Errorf("genesis must be an embedded object or a non-empty string path"))
 		return res
 	}
 

@@ -62,7 +62,7 @@ Usage:
   qikchain allocations render --file config/allocations/devnet.json
   qikchain chain metadata --token config/token.json [--out build/chain-metadata.json]
   qikchain genesis build [--consensus poa|pos --env devnet|staging|mainnet]
-  qikchain genesis validate --chain build/chain.json [--genesis build/genesis-eth.json]
+  qikchain genesis validate --chain build/genesis.json [--genesis build/genesis-eth.json]
   qikchain genesis print --file build/chain.json [--json]
 `)
 }
@@ -120,7 +120,8 @@ func cmdGenesisBuild(args []string) int {
 	minGasPrice := fs.String("min-gas-price", "0", "minimum gas price in wei")
 	baseFeeEnabled := fs.Bool("base-fee-enabled", false, "enable base fee in ethereum genesis")
 	posDeployments := fs.String("pos-deployments", "build/deployments/pos.local.json", "PoS deployment file path")
-	out := fs.String("out", "", "deprecated single output path (writes chain file)")
+	out := fs.String("out", "", "combined genesis output path (deprecated alias: --out-combined)")
+	outCombined := fs.String("out-combined", "build/genesis.json", "output combined chain+genesis file path")
 	outChain := fs.String("out-chain", "build/chain.json", "output chain config path")
 	outGenesis := fs.String("out-genesis", "build/genesis-eth.json", "output Ethereum genesis path")
 	metadataOut := fs.String("metadata-out", "build/chain-metadata.json", "output chain metadata path")
@@ -184,6 +185,7 @@ func cmdGenesisBuild(args []string) int {
 		BaseFeeEnabled:           *baseFeeEnabled,
 		POSDeploymentsPath:       *posDeployments,
 		OutPath:                  *out,
+		OutCombinedPath:          *outCombined,
 		OutChainPath:             *outChain,
 		OutGenesisPath:           *outGenesis,
 		MetadataOutPath:          *metadataOut,
@@ -205,18 +207,22 @@ func cmdGenesisBuild(args []string) int {
 
 	fmt.Printf("consensus=%s env=%s chainId=%d\n", *consensus, *env, *chainID)
 	fmt.Printf("allocTotalWei=%s\n", res.TotalPremineWei)
+	combinedOut := *outCombined
+	if *out != "" {
+		combinedOut = *out
+	}
+	if combinedOut == "" {
+		combinedOut = "build/genesis.json"
+	}
 	chainOut := *outChain
 	if chainOut == "" {
-		chainOut = *out
-	}
-	if chainOut == "" {
-		chainOut = "build/chain.json"
+		chainOut = filepath.Join(filepath.Dir(combinedOut), "chain.json")
 	}
 	genOut := *outGenesis
 	if genOut == "" {
 		genOut = "build/genesis-eth.json"
 	}
-	fmt.Printf("chain=%s\ngenesis=%s\nmetadata=%s\n", chainOut, genOut, *metadataOut)
+	fmt.Printf("combined=%s\nchain=%s\ngenesis=%s\nmetadata=%s\n", combinedOut, chainOut, genOut, *metadataOut)
 	if res.POSAddressesUsed {
 		fmt.Printf("pos.staking=%s\npos.validatorSet=%s\n", res.POSAddresses.Staking, res.POSAddresses.ValidatorSet)
 	}

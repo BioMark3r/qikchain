@@ -67,7 +67,7 @@ func TestGenesisBuildSplitOutputsAndWrite(t *testing.T) {
 	tmp := t.TempDir()
 	chainOut := filepath.Join(tmp, "build", "chain.json")
 	genOut := filepath.Join(tmp, "build", "genesis-eth.json")
-	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, GasLimit: "0x1c9c380", Difficulty: "0x1", ExtraData: "0x", MinGasPrice: "0", BaseFeeEnabled: false, Pretty: true, Strict: true, OutChainPath: chainOut, OutGenesisPath: genOut, MetadataOutPath: filepath.Join(tmp, "build", "meta.json")}
+	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, GasLimit: "0x1c9c380", Difficulty: "0x1", ExtraData: "0x", MinGasPrice: "0", BaseFeeEnabled: false, Pretty: true, Strict: true, OutCombinedPath: filepath.Join(tmp, "build", "genesis.json"), OutChainPath: chainOut, OutGenesisPath: genOut, MetadataOutPath: filepath.Join(tmp, "build", "meta.json")}
 	res, err := Build(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -115,5 +115,33 @@ func TestGenesisBuildSplitOutputsAndWrite(t *testing.T) {
 	}
 	if got, _ := ethDoc["baseFeeEnabled"].(bool); got {
 		t.Fatalf("expected default baseFeeEnabled false")
+	}
+}
+
+func TestGenesisBuildWritesCombinedOutput(t *testing.T) {
+	tmp := t.TempDir()
+	combinedOut := filepath.Join(tmp, "build", "genesis.json")
+	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, GasLimit: "0x1c9c380", Difficulty: "0x1", ExtraData: "0x", MinGasPrice: "0", BaseFeeEnabled: false, Pretty: true, Strict: true, OutCombinedPath: combinedOut, MetadataOutPath: filepath.Join(tmp, "build", "meta.json")}
+	res, err := Build(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteOutputs(opts, res); err != nil {
+		t.Fatal(err)
+	}
+	combinedBytes, err := os.ReadFile(combinedOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var combinedDoc map[string]any
+	if err := json.Unmarshal(combinedBytes, &combinedDoc); err != nil {
+		t.Fatal(err)
+	}
+	genesis, ok := combinedDoc["genesis"].(map[string]any)
+	if !ok {
+		t.Fatalf("combined genesis must embed genesis object")
+	}
+	if gas, ok := genesis["gasLimit"].(string); !ok || gas == "" {
+		t.Fatalf("expected gasLimit in embedded genesis")
 	}
 }
