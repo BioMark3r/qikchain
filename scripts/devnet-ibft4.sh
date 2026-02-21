@@ -45,8 +45,8 @@ MIN_GAS_PRICE="${MIN_GAS_PRICE:-0}"
 BASE_FEE_ENABLED="${BASE_FEE_ENABLED:-false}"
 
 # Files
-CHAIN_OUT="${CHAIN_OUT:-$ROOT/build/chain.json}"
-GENESIS_OUT="${GENESIS_OUT:-$CHAIN_OUT}"
+GENESIS_OUT="${GENESIS_OUT:-$ROOT/build/genesis.json}"
+CHAIN_SPLIT_OUT="${CHAIN_SPLIT_OUT:-$ROOT/build/chain.json}"
 GENESIS_ETH_OUT="${GENESIS_ETH_OUT:-$ROOT/build/genesis-eth.json}"
 METADATA_OUT="${METADATA_OUT:-$ROOT/build/chain-metadata.json}"
 ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations/devnet.json}"
@@ -147,9 +147,8 @@ get_node1_bootnode_addr() {
 
 build_genesis() {
   log "Building genesis via CLI (consensus=$CONSENSUS env=$ENV_NAME chainId=$CHAIN_ID)"
-  log "Combined chain output: $CHAIN_OUT"
-  log "Combined alias output: $GENESIS_OUT"
-  log "Chain output (split mode): $ROOT/build/chain.split.json"
+  log "Combined chain output: $GENESIS_OUT"
+  log "Chain output (split mode): $CHAIN_SPLIT_OUT"
   log "Eth genesis output (split mode): $GENESIS_ETH_OUT"
   local args=(
     genesis build
@@ -161,8 +160,8 @@ build_genesis() {
     --base-fee-enabled "$BASE_FEE_ENABLED"
     --allocations "$ALLOCATIONS_FILE"
     --token "$TOKEN_FILE"
-    --out-combined "$CHAIN_OUT"
-    --out-chain "$ROOT/build/chain.split.json"
+    --out-combined "$GENESIS_OUT"
+    --out-chain "$CHAIN_SPLIT_OUT"
     --out-genesis "$GENESIS_ETH_OUT"
     --metadata-out "$METADATA_OUT"
   )
@@ -178,11 +177,7 @@ build_genesis() {
   fi
 
   "$QIKCHAIN_BIN" "${args[@]}"
-  "$QIKCHAIN_BIN" genesis validate --chain "$CHAIN_OUT"
-
-  if [[ "$GENESIS_OUT" != "$CHAIN_OUT" ]]; then
-    cp "$CHAIN_OUT" "$GENESIS_OUT"
-  fi
+  "$QIKCHAIN_BIN" genesis validate --chain "$GENESIS_OUT"
 }
 
 start_node() {
@@ -219,7 +214,7 @@ start_node() {
     if [[ -n "$bootnode" ]]; then
       "$EDGE_BIN" server \
         --data-dir "$dir" \
-        --chain "$CHAIN_OUT" \
+        --chain "$ROOT/build/genesis.json" \
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
@@ -228,7 +223,7 @@ start_node() {
     else
       "$EDGE_BIN" server \
         --data-dir "$dir" \
-        --chain "$CHAIN_OUT" \
+        --chain "$ROOT/build/genesis.json" \
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
