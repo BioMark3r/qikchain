@@ -43,6 +43,10 @@ type POSAddresses struct {
 	ValidatorSet string `json:"validatorSet"`
 }
 
+type ForkObject struct {
+	Block uint64 `json:"block"`
+}
+
 type BuildResult struct {
 	GenesisJSON      []byte
 	ChainJSON        []byte
@@ -217,24 +221,32 @@ func ensureParamsForks(doc map[string]any, env string) {
 	}
 
 	if strings.EqualFold(env, "devnet") {
-		params["forks"] = map[string]any{
-			"homestead":           float64(0),
-			"byzantium":           float64(0),
-			"constantinople":      float64(0),
-			"petersburg":          float64(0),
-			"istanbul":            float64(0),
-			"london":              float64(0),
-			"eip150":              float64(0),
-			"eip155":              float64(0),
-			"eip158":              float64(0),
-			"quorumCalcAlignment": float64(0),
-			"txHashWithType":      float64(0),
-			"londonFix":           float64(0),
-		}
+		params["forks"] = toAnyForkMap(map[string]ForkObject{
+			"homestead":           {Block: 0},
+			"byzantium":           {Block: 0},
+			"constantinople":      {Block: 0},
+			"petersburg":          {Block: 0},
+			"istanbul":            {Block: 0},
+			"london":              {Block: 0},
+			"eip150":              {Block: 0},
+			"eip155":              {Block: 0},
+			"eip158":              {Block: 0},
+			"quorumCalcAlignment": {Block: 0},
+			"txHashWithType":      {Block: 0},
+			"londonFix":           {Block: 0},
+		})
 		return
 	}
 
 	params["forks"] = map[string]any{}
+}
+
+func toAnyForkMap(in map[string]ForkObject) map[string]any {
+	out := make(map[string]any, len(in))
+	for name, fork := range in {
+		out[name] = map[string]any{"block": fork.Block}
+	}
+	return out
 }
 
 func removeForbiddenTopLevelKeys(genesis map[string]any) {
