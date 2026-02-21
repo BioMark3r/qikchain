@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,9 +113,12 @@ func cmdGenesisBuild(args []string) int {
 	tokenPath := fs.String("token", "config/token.json", "token metadata file path")
 	allocationsPath := fs.String("allocations", "", "allocation file path")
 	chainID := fs.Int("chain-id", 0, "chain id")
-	blockGasLimit := fs.String("block-gas-limit", "0x1c9c380", "block gas limit")
+	gasLimitRaw := fs.String("gas-limit", "0x1c9c380", "ethereum genesis gas limit (decimal or 0x-hex)")
+	blockGasLimit := fs.String("block-gas-limit", "", "deprecated alias for --gas-limit")
+	difficulty := fs.String("difficulty", "0x1", "ethereum genesis difficulty (decimal or 0x-hex)")
+	extraData := fs.String("extra-data", "0x", "ethereum genesis extraData")
 	minGasPrice := fs.String("min-gas-price", "0", "minimum gas price in wei")
-	baseFeeEnabled := fs.Bool("base-fee-enabled", false, "enable base fee")
+	baseFeeEnabled := fs.Bool("base-fee-enabled", false, "enable base fee in ethereum genesis")
 	posDeployments := fs.String("pos-deployments", "build/deployments/pos.local.json", "PoS deployment file path")
 	out := fs.String("out", "", "deprecated single output path (writes chain file)")
 	outChain := fs.String("out-chain", "build/chain.json", "output chain config path")
@@ -151,6 +155,20 @@ func cmdGenesisBuild(args []string) int {
 		}
 	}
 
+	if strings.TrimSpace(*blockGasLimit) != "" {
+		*gasLimitRaw = *blockGasLimit
+	}
+	gasLimit, err := toHexQuantity(*gasLimitRaw)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "genesis build: invalid --gas-limit: %v\n", err)
+		return 2
+	}
+	difficultyHex, err := toHexQuantity(*difficulty)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "genesis build: invalid --difficulty: %v\n", err)
+		return 2
+	}
+
 	opts := genesis.BuildOptions{
 		Consensus:                *consensus,
 		Env:                      *env,
@@ -159,7 +177,9 @@ func cmdGenesisBuild(args []string) int {
 		TokenPath:                *tokenPath,
 		AllocationsPath:          *allocationsPath,
 		ChainID:                  *chainID,
-		BlockGasLimit:            *blockGasLimit,
+		GasLimit:                 gasLimit,
+		Difficulty:               difficultyHex,
+		ExtraData:                *extraData,
 		MinGasPrice:              *minGasPrice,
 		BaseFeeEnabled:           *baseFeeEnabled,
 		POSDeploymentsPath:       *posDeployments,
@@ -619,6 +639,25 @@ func (c *rpcClient) callString(method string) (string, error) {
 		return "", fmt.Errorf("unexpected result type: %s", string(out.Result))
 	}
 	return s, nil
+}
+
+func toHexQuantity(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", fmt.Errorf("value is empty")
+	}
+	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
+		n, err := strconv.ParseUint(v[2:], 16, 64)
+		if err != nil {
+			return "", fmt.Errorf("must be decimal or 0x hex")
+		}
+		return fmt.Sprintf("0x%x", n), nil
+	}
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("must be decimal or 0x hex")
+	}
+	return fmt.Sprintf("0x%x", n), nil
 }
 
 func hexToUint64(h string) (uint64, error) {

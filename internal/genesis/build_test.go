@@ -16,7 +16,7 @@ func TestBuildDeterministicSameInputs(t *testing.T) {
 	if err := os.WriteFile(deploy, []byte(`{"staking":{"address":"0x10000000000000000000000000000000000000aa"},"validatorSet":{"address":"0x10000000000000000000000000000000000000bb"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, BlockGasLimit: "0x1c9c380", MinGasPrice: "0", BaseFeeEnabled: false, POSDeploymentsPath: deploy, Pretty: true, Strict: false}
+	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, GasLimit: "0x1c9c380", Difficulty: "0x1", ExtraData: "0x", MinGasPrice: "0", BaseFeeEnabled: false, POSDeploymentsPath: deploy, Pretty: true, Strict: false}
 	a, err := Build(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestAllocOrderingDeterministic(t *testing.T) {
 }
 
 func TestPOSBuildFailsWithoutDeploymentsUnlessAllowed(t *testing.T) {
-	opts := BuildOptions{Consensus: "pos", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, BlockGasLimit: "0x1c9c380", MinGasPrice: "0", BaseFeeEnabled: false, POSDeploymentsPath: filepath.Join(t.TempDir(), "missing.json"), Pretty: true, Strict: false}
+	opts := BuildOptions{Consensus: "pos", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, GasLimit: "0x1c9c380", Difficulty: "0x1", ExtraData: "0x", MinGasPrice: "0", BaseFeeEnabled: false, POSDeploymentsPath: filepath.Join(t.TempDir(), "missing.json"), Pretty: true, Strict: false}
 	if _, err := Build(opts); err == nil {
 		t.Fatal("expected error for missing pos deployments")
 	}
@@ -67,7 +67,7 @@ func TestGenesisBuildSplitOutputsAndWrite(t *testing.T) {
 	tmp := t.TempDir()
 	chainOut := filepath.Join(tmp, "build", "chain.json")
 	genOut := filepath.Join(tmp, "build", "genesis-eth.json")
-	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, BlockGasLimit: "0x1c9c380", MinGasPrice: "0", BaseFeeEnabled: false, Pretty: true, Strict: true, OutChainPath: chainOut, OutGenesisPath: genOut, MetadataOutPath: filepath.Join(tmp, "build", "meta.json")}
+	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, GasLimit: "0x1c9c380", Difficulty: "0x1", ExtraData: "0x", MinGasPrice: "0", BaseFeeEnabled: false, Pretty: true, Strict: true, OutChainPath: chainOut, OutGenesisPath: genOut, MetadataOutPath: filepath.Join(tmp, "build", "meta.json")}
 	res, err := Build(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,16 @@ func TestGenesisBuildSplitOutputsAndWrite(t *testing.T) {
 	if _, ok := ethDoc["alloc"].(map[string]any); !ok {
 		t.Fatalf("expected alloc in ethereum genesis")
 	}
-	if _, ok := ethDoc["gasLimit"].(string); !ok {
+	if gas, ok := ethDoc["gasLimit"].(string); !ok || gas == "" {
 		t.Fatalf("expected gasLimit in ethereum genesis")
+	}
+	if got, _ := ethDoc["difficulty"].(string); got != "0x1" {
+		t.Fatalf("expected default difficulty 0x1, got %q", got)
+	}
+	if got, _ := ethDoc["extraData"].(string); got != "0x" {
+		t.Fatalf("expected default extraData 0x, got %q", got)
+	}
+	if got, _ := ethDoc["baseFeeEnabled"].(bool); got {
+		t.Fatalf("expected default baseFeeEnabled false")
 	}
 }

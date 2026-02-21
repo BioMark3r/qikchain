@@ -21,7 +21,9 @@ type BuildOptions struct {
 	TokenPath                string
 	AllocationsPath          string
 	ChainID                  int
-	BlockGasLimit            string
+	GasLimit                 string
+	Difficulty               string
+	ExtraData                string
 	MinGasPrice              string
 	BaseFeeEnabled           bool
 	POSDeploymentsPath       string
@@ -92,12 +94,13 @@ func Build(opts BuildOptions) (BuildResult, error) {
 
 	placeholders := map[string]string{
 		"CHAIN_ID":             strconv.Itoa(opts.ChainID),
-		"BLOCK_GAS_LIMIT":      opts.BlockGasLimit,
+		"BLOCK_GAS_LIMIT":      opts.GasLimit,
+		"GENESIS_DIFFICULTY":   strconv.Quote(opts.Difficulty),
 		"MIN_GAS_PRICE":        strconv.Quote(opts.MinGasPrice),
 		"BASE_FEE_ENABLED":     strconv.FormatBool(opts.BaseFeeEnabled),
 		"PREALLOCATIONS":       string(allocJSON),
 		"POS_BLOCK_REWARD":     strconv.Quote("0"),
-		"VALIDATOR_EXTRA_DATA": strconv.Quote("0x"),
+		"VALIDATOR_EXTRA_DATA": strconv.Quote(opts.ExtraData),
 	}
 
 	if opts.Consensus == "pos" {

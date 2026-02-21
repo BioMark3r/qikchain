@@ -50,3 +50,21 @@ func TestValidateCombinedFormatFailsActionably(t *testing.T) {
 		t.Fatalf("expected actionable combined-format error, got %v", res.Errors)
 	}
 }
+
+func TestValidateEthereumGenesisMissingFieldsMessageLocation(t *testing.T) {
+	res := ValidateEthereumGenesis(map[string]any{"alloc": map[string]any{}})
+	if len(res.Errors) == 0 {
+		t.Fatalf("expected validation errors")
+	}
+	want := "ethereum genesis: top-level gasLimit is required"
+	found := false
+	for _, err := range res.Errors {
+		if strings.Contains(err.Error(), want) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected contextual ethereum genesis error, got %v", res.Errors)
+	}
+}

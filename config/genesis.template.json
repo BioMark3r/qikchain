@@ -2,7 +2,7 @@
   "name": "qikchain",
   "genesis": {
     "gasLimit": "{{BLOCK_GAS_LIMIT}}",
-    "difficulty": "0x1",
+    "difficulty": "{{GENESIS_DIFFICULTY}}",
     "baseFeeEnabled": "{{BASE_FEE_ENABLED}}",
     "extraData": "{{VALIDATOR_EXTRA_DATA}}",
     "alloc": "{{PREALLOCATIONS}}"

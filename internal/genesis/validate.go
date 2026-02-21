@@ -141,16 +141,16 @@ func ValidateEthereumGenesis(doc map[string]any) ValidateResult {
 	}
 
 	if _, ok := doc["gasLimit"].(string); !ok {
-		res.Errors = append(res.Errors, fmt.Errorf("gasLimit is required"))
+		res.Errors = append(res.Errors, fmt.Errorf("ethereum genesis: top-level gasLimit is required"))
 	}
 	if _, ok := doc["difficulty"].(string); !ok {
-		res.Errors = append(res.Errors, fmt.Errorf("difficulty is required"))
+		res.Errors = append(res.Errors, fmt.Errorf("ethereum genesis: top-level difficulty is required"))
 	}
 	if _, ok := doc["extraData"].(string); !ok {
-		res.Errors = append(res.Errors, fmt.Errorf("extraData is required"))
+		res.Errors = append(res.Errors, fmt.Errorf("ethereum genesis: top-level extraData is required"))
 	}
 	if _, ok := doc["baseFeeEnabled"].(bool); !ok {
-		res.Errors = append(res.Errors, fmt.Errorf("baseFeeEnabled is required and must be boolean"))
+		res.Errors = append(res.Errors, fmt.Errorf("ethereum genesis: top-level baseFeeEnabled is required and must be boolean"))
 	}
 
 	return res
