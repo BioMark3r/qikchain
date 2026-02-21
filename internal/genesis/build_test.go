@@ -141,6 +141,19 @@ func TestGenesisBuildWritesCombinedOutput(t *testing.T) {
 	if !ok {
 		t.Fatalf("combined genesis must embed genesis object")
 	}
+	params, ok := combinedDoc["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("combined output must include params object")
+	}
+	forks, ok := params["forks"].(map[string]any)
+	if !ok || forks == nil {
+		t.Fatalf("combined output must include params.forks object")
+	}
+	for _, k := range []string{"homestead", "byzantium", "constantinople", "petersburg", "istanbul", "london", "eip150", "eip155", "eip158", "quorumCalcAlignment", "txHashWithType", "londonFix"} {
+		if _, ok := forks[k]; !ok {
+			t.Fatalf("expected devnet fork %s", k)
+		}
+	}
 	if gas, ok := genesis["gasLimit"].(string); !ok || gas == "" {
 		t.Fatalf("expected gasLimit in embedded genesis")
 	}

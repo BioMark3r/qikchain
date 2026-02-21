@@ -128,6 +128,7 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	combined := DeepMerge(base, overlay)
 	removeForbiddenTopLevelKeys(combined)
 	ensureParamsEngineIBFT(combined, overlay)
+	ensureParamsForks(combined, opts.Env)
 
 	ethGenesis, _ := combined["genesis"].(map[string]any)
 	if ethGenesis == nil {
@@ -203,6 +204,37 @@ func ensureParamsEngineIBFT(base map[string]any, overlay map[string]any) {
 	for k, v := range overlayEngine {
 		engine[k] = cloneAny(v)
 	}
+}
+
+func ensureParamsForks(doc map[string]any, env string) {
+	params, _ := doc["params"].(map[string]any)
+	if params == nil {
+		params = map[string]any{}
+		doc["params"] = params
+	}
+	if forks, _ := params["forks"].(map[string]any); forks != nil {
+		return
+	}
+
+	if strings.EqualFold(env, "devnet") {
+		params["forks"] = map[string]any{
+			"homestead":           float64(0),
+			"byzantium":           float64(0),
+			"constantinople":      float64(0),
+			"petersburg":          float64(0),
+			"istanbul":            float64(0),
+			"london":              float64(0),
+			"eip150":              float64(0),
+			"eip155":              float64(0),
+			"eip158":              float64(0),
+			"quorumCalcAlignment": float64(0),
+			"txHashWithType":      float64(0),
+			"londonFix":           float64(0),
+		}
+		return
+	}
+
+	params["forks"] = map[string]any{}
 }
 
 func removeForbiddenTopLevelKeys(genesis map[string]any) {
