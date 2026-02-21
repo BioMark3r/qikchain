@@ -59,6 +59,9 @@ func ValidateChainConfig(doc map[string]any, opts ValidateOptions) ValidateResul
 		if _, ok := params["minGasPrice"]; !ok {
 			res.Warnings = append(res.Warnings, "params.minGasPrice is recommended")
 		}
+		if forks, ok := params["forks"].(map[string]any); !ok || forks == nil {
+			res.Errors = append(res.Errors, fmt.Errorf("params.forks must be a non-nil object"))
+		}
 
 		engine, _ := params["engine"].(map[string]any)
 		if engine == nil {
