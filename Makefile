@@ -119,7 +119,7 @@ build-edge:
 	elif [ -f ./scripts/fetch-polygon-edge.sh ]; then \
 		echo "==> Attempting polygon-edge build via scripts/fetch-polygon-edge.sh"; \
 		if bash ./scripts/fetch-polygon-edge.sh && [ -d third_party/polygon-edge ]; then \
-			cd "$(ROOT)/third_party/polygon-edge" && $(GO) build $(GOFLAGS) -o "$(POLYGON_EDGE_BIN)" .; \
+			cd "$(ROOT)/third_party/polygon-edge" && $(GO) build -mod=mod $(GOFLAGS) -o "$(POLYGON_EDGE_BIN)" .			
 		else \
 			echo "==> Warning: polygon-edge fetch/build failed; continuing with qikchain only"; \
 		fi; \
