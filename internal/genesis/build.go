@@ -28,6 +28,7 @@ type BuildOptions struct {
 	BaseFeeEnabled           bool
 	POSDeploymentsPath       string
 	OutPath                  string
+	OutCombinedPath          string
 	OutChainPath             string
 	OutGenesisPath           string
 	MetadataOutPath          string
@@ -151,6 +152,15 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	}
 
 	if opts.Pretty {
+		res.GenesisJSON, err = MarshalCanonicalIndented(combined)
+	} else {
+		res.GenesisJSON, err = MarshalCanonical(combined)
+	}
+	if err != nil {
+		return res, err
+	}
+
+	if opts.Pretty {
 		res.EthGenesisJSON, err = MarshalCanonicalIndented(ethGenesis)
 	} else {
 		res.EthGenesisJSON, err = MarshalCanonical(ethGenesis)
@@ -163,7 +173,6 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	} else {
 		res.ChainJSON, err = MarshalCanonical(chainDoc)
 	}
-	res.GenesisJSON = res.ChainJSON
 	if err != nil {
 		return res, err
 	}
@@ -203,13 +212,17 @@ func removeForbiddenTopLevelKeys(genesis map[string]any) {
 }
 
 func WriteOutputs(opts BuildOptions, res BuildResult) error {
+	combinedPath := opts.OutCombinedPath
+	if combinedPath == "" {
+		if opts.OutPath != "" {
+			combinedPath = opts.OutPath
+		} else {
+			combinedPath = filepath.Join("build", "genesis.json")
+		}
+	}
 	chainPath := opts.OutChainPath
 	if chainPath == "" {
-		if opts.OutPath != "" {
-			chainPath = opts.OutPath
-		} else {
-			chainPath = filepath.Join("build", "chain.json")
-		}
+		chainPath = filepath.Join(filepath.Dir(combinedPath), "chain.json")
 	}
 	genesisPath := opts.OutGenesisPath
 	if genesisPath == "" {
@@ -224,6 +237,13 @@ func WriteOutputs(opts BuildOptions, res BuildResult) error {
 		return err
 	}
 	if err := os.WriteFile(absGenesisPath, res.EthGenesisJSON, 0o644); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(combinedPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(combinedPath, res.GenesisJSON, 0o644); err != nil {
 		return err
 	}
 

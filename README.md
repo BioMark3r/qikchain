@@ -53,22 +53,25 @@ Token metadata lives in: `config/token.json`
 
 ## Architecture
 
-### Important: chain.json vs genesis-eth.json
+### Important: combined genesis is the default for this Polygon Edge build
 
-This Polygon Edge build expects the **chain config** (`--chain`) to reference the **genesis** via a **string path**.
+This repo’s Polygon Edge build expects `--chain` to point to a **combined genesis** document where `.genesis` is an embedded object.
 
-So we generate two artifacts:
+Default output:
 
-- `build/chain.json` — Polygon Edge chain config
-- `build/genesis-eth.json` — Ethereum-style genesis
+- `build/genesis.json` — combined chain config + embedded Ethereum genesis (used by devnet scripts)
 
-**chain.json (example)**
+Optional split outputs are still supported for alternate tooling/builds:
+
+- `build/chain.json` — chain config with `genesis` as a string path
+- `build/genesis-eth.json` — Ethereum-style genesis file
+
+**combined genesis.json (example)**
 
 ```json
 {
   "name": "qikchain",
   "bootnodes": [],
-  "genesis": "/abs/path/to/build/genesis-eth.json",
   "params": {
     "chainID": 100,
     "minGasPrice": "0",
@@ -79,21 +82,16 @@ So we generate two artifacts:
         "blockTime": "2s"
       }
     }
-  }
-}
-```
-
-**genesis-eth.json (example)**
-
-```json
-{
-  "alloc": {
-    "0x1000000000000000000000000000000000000001": { "balance": "1000000000000000000000000" }
   },
-  "gasLimit": "0x1c9c380",
-  "difficulty": "0x1",
-  "extraData": "0x",
-  "baseFeeEnabled": false
+  "genesis": {
+    "alloc": {
+      "0x1000000000000000000000000000000000000001": { "balance": "1000000000000000000000000" }
+    },
+    "gasLimit": "0x1c9c380",
+    "difficulty": "0x1",
+    "extraData": "0x",
+    "baseFeeEnabled": false
+  }
 }
 ```
 
@@ -148,13 +146,13 @@ Commands:
 PoA devnet example:
 
 ```bash
-./bin/qikchain genesis build   --consensus poa   --env devnet   --chain-id 100   --allocations config/allocations/devnet.json   --token config/token.json   --out-chain build/chain.json   --out-genesis build/genesis-eth.json
+./bin/qikchain genesis build   --consensus poa   --env devnet   --chain-id 100   --allocations config/allocations/devnet.json   --token config/token.json   --out-combined build/genesis.json   --out-chain build/chain.json   --out-genesis build/genesis-eth.json
 ```
 
 Validate:
 
 ```bash
-./bin/qikchain genesis validate --chain build/chain.json
+./bin/qikchain genesis validate --chain build/genesis.json
 ```
 
 ### PoS devnet notes
@@ -168,7 +166,7 @@ For Phase 1 PoS:
 PoS build example:
 
 ```bash
-./bin/qikchain genesis build   --consensus pos   --env devnet   --chain-id 100   --pos-deployments build/deployments/pos.local.json   --out-chain build/chain.json   --out-genesis build/genesis-eth.json
+./bin/qikchain genesis build   --consensus pos   --env devnet   --chain-id 100   --pos-deployments build/deployments/pos.local.json   --out-combined build/genesis.json   --out-chain build/chain.json   --out-genesis build/genesis-eth.json
 ```
 
 ---
@@ -233,8 +231,9 @@ INSECURE_SECRETS=1 RESET=1 CONSENSUS=pos ./scripts/devnet-ibft4.sh
 | `BLOCK_GAS_LIMIT` | `15000000` | target gas limit |
 | `MIN_GAS_PRICE` | `0` | min gas price |
 | `BASE_FEE_ENABLED` | `false` | EIP-1559 style base fee toggle |
-| `CHAIN_OUT` | `build/chain.json` | chain config output |
-| `GENESIS_ETH_OUT` | `build/genesis-eth.json` | ethereum genesis output |
+| `GENESIS_OUT` | `build/genesis.json` | combined chain config + embedded genesis (used by devnet) |
+| `CHAIN_OUT` | `build/chain.json` | split chain config output (optional) |
+| `GENESIS_ETH_OUT` | `build/genesis-eth.json` | split ethereum genesis output (optional) |
 
 ⚠️ **INSECURE_SECRETS=1 is dev-only** (never for production).
 
@@ -319,15 +318,17 @@ What it validates:
 
 Your Edge version uses `--prometheus`. Ensure your startup script passes `--prometheus` instead.
 
-### `json: cannot unmarshal number into Go struct field Chain.genesis of type string`
+### `json: cannot unmarshal string into Go struct field Chain.genesis of type chain.Genesis`
 
-Your chain config must contain:
+Your Edge build expects an embedded genesis object in the file passed to `--chain`.
+Use the combined output:
 
-```json
-"genesis": "/path/to/genesis-eth.json"
+```bash
+./bin/qikchain genesis build --out-combined build/genesis.json
+./bin/polygon-edge server --chain build/genesis.json ...
 ```
 
-Not an embedded object. Use `build/chain.json` + `build/genesis-eth.json`.
+Use split outputs (`build/chain.json` + `build/genesis-eth.json`) only for alternate tooling/builds that require a string genesis path.
 
 ### `consensus object is required`
 
@@ -374,6 +375,7 @@ bin/
   polygon-edge
 
 build/
+  genesis.json
   chain.json
   genesis-eth.json
   deployments/        # PoS deployments (devnet)
