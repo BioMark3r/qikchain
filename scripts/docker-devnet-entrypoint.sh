@@ -27,6 +27,7 @@ TOKEN_FILE="${TOKEN_FILE:-$APP_DIR/config/token.json}"
 POS_DEPLOYMENTS="${POS_DEPLOYMENTS:-$APP_DIR/build/deployments/pos.local.json}"
 
 CHAIN_OUT="$BUILD_DIR/chain.json"
+COMBINED_OUT="$BUILD_DIR/genesis.json"
 GENESIS_OUT="$BUILD_DIR/genesis-eth.json"
 METADATA_OUT="$BUILD_DIR/chain-metadata.json"
 BOOTNODE_FILE="$BUILD_DIR/node1.bootnode"
@@ -88,7 +89,7 @@ build_genesis_if_node1() {
 
   mkdir -p "$BUILD_DIR"
 
-  if [[ -f "$CHAIN_OUT" && -f "$GENESIS_OUT" ]]; then
+  if [[ -f "$COMBINED_OUT" && -f "$CHAIN_OUT" && -f "$GENESIS_OUT" ]]; then
     log "Genesis artifacts already exist in $BUILD_DIR"
     return 0
   fi
@@ -104,6 +105,7 @@ build_genesis_if_node1() {
     --base-fee-enabled "$BASE_FEE_ENABLED"
     --allocations "$ALLOCATIONS_FILE"
     --token "$TOKEN_FILE"
+    --out-combined "$COMBINED_OUT"
     --out-chain "$CHAIN_OUT"
     --out-genesis "$GENESIS_OUT"
     --metadata-out "$METADATA_OUT"
@@ -114,7 +116,7 @@ build_genesis_if_node1() {
   fi
 
   "$QIKCHAIN_BIN" "${build_args[@]}"
-  "$QIKCHAIN_BIN" genesis validate --chain "$CHAIN_OUT"
+  "$QIKCHAIN_BIN" genesis validate --chain "$COMBINED_OUT"
 }
 
 detect_metrics_flag() {
@@ -152,7 +154,7 @@ main() {
 
   if [[ "$NODE_NAME" != "node1" ]]; then
     log "Waiting for shared chain artifacts"
-    wait_for_file "$CHAIN_OUT" 180
+    wait_for_file "$COMBINED_OUT" 180
   fi
 
   ensure_secrets
@@ -174,7 +176,7 @@ main() {
   log "Starting polygon-edge"
   exec "$EDGE_BIN" server \
     --data-dir "$NODE_DATA_DIR" \
-    --chain "$CHAIN_OUT" \
+    --chain "$COMBINED_OUT" \
     --grpc-address "0.0.0.0:${GRPC_PORT}" \
     --jsonrpc "0.0.0.0:${RPC_PORT}" \
     --libp2p "0.0.0.0:${P2P_PORT}" \
