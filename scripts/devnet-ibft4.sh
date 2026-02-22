@@ -41,6 +41,7 @@ INSECURE_SECRETS="${INSECURE_SECRETS:-1}"  # dev-only
 
 # Chain config
 CHAIN_ID="${CHAIN_ID:-100}"
+CHAIN_NAME="${CHAIN_NAME:-qikchain-ibft4-devnet}"
 BLOCK_GAS_LIMIT="${BLOCK_GAS_LIMIT:-0x1c9c380}"
 MIN_GAS_PRICE="${MIN_GAS_PRICE:-0}"
 BASE_FEE_ENABLED="${BASE_FEE_ENABLED:-false}"
@@ -168,31 +169,13 @@ build_genesis() {
   log "Building Polygon Edge IBFT genesis (chainId=$CHAIN_ID blockTime=2s)"
   log "Genesis output: $GENESIS_OUT"
 
-  local validator_addresses=()
-  local validator_blspubs=()
-  for i in 1 2 3 4; do
-    local secrets="${NODE_DIRS[$((i-1))]}/secrets"
-    local out
-    out="$("$EDGE_BIN" secrets output --data-dir "$secrets")"
-
-    local addr=""
-    addr="$(echo "$out" | sed -nE \
-      -e 's/.*Public key \(address\)[[:space:]]*=[[:space:]]*(0x[0-9a-fA-F]{40}).*/\1/p' \
-      -e 's/.*(Validator[[:space:]]+)?Address[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]{40}).*/\2/p' \
-      | head -n1 || true)"
-    if [[ -z "$addr" ]]; then
-      echo "ERROR: could not parse validator address for node$i from secrets output"
-      echo "$out"
-      exit 1
-    fi
-    validator_addresses+=("$addr")
-
-    local blspub
-    blspub="$(echo "$out" | sed -nE 's/.*(BLS[[:space:]]+)?(Public key|Pubkey)[[:space:]]*[:=][[:space:]]*([0-9a-fA-Fx]+).*/\3/p' | head -n1)"
-    if [[ -n "$blspub" ]]; then
-      validator_blspubs+=("$blspub")
-    fi
-  done
+  local validators_root="$NET_DIR/validators"
+  rm -rf "$validators_root"
+  mkdir -p "$validators_root"
+  ln -sfn "$NET_DIR/node1" "$validators_root/test-chain-1"
+  ln -sfn "$NET_DIR/node2" "$validators_root/test-chain-2"
+  ln -sfn "$NET_DIR/node3" "$validators_root/test-chain-3"
+  ln -sfn "$NET_DIR/node4" "$validators_root/test-chain-4"
 
   local bootnodes=()
   for i in 1 2 3 4; do
@@ -205,42 +188,25 @@ build_genesis() {
   local args=(
     genesis
     --consensus ibft
+    --ibft-validator-type bls
     --chain-id "$CHAIN_ID"
+    --name "$CHAIN_NAME"
     --block-gas-limit "$BLOCK_GAS_LIMIT"
     --block-time 2s
     --dir "$GENESIS_OUT"
+    --validators-path "$validators_root"
+    --validators-prefix "test-chain-"
   )
 
   for b in "${bootnodes[@]}"; do
     args+=(--bootnode "$b")
   done
 
-  local used_direct_validator_flags=0
-  if "$EDGE_BIN" genesis --help 2>&1 | rg -q -- "--ibft-validator"; then
-    for v in "${validator_addresses[@]}"; do
-      args+=(--ibft-validator "$v")
-    done
-    used_direct_validator_flags=1
-  elif "$EDGE_BIN" genesis --help 2>&1 | rg -q -- "--ibft-validators-prefix-path"; then
-    args+=(--ibft-validators-prefix-path "$NET_DIR/node")
-  else
-    echo "ERROR: polygon-edge genesis does not expose an IBFT validator flag we can use"
-    "$EDGE_BIN" genesis --help
-    exit 1
-  fi
-
-  log "Validators: ${validator_addresses[*]}"
-  if (( ${#validator_blspubs[@]} > 0 )); then
-    log "Collected BLS public keys for validators (count=${#validator_blspubs[@]})"
-  fi
+  log "Validators path: $validators_root (prefix=test-chain-)"
 
   "$EDGE_BIN" "${args[@]}"
 
-  if (( used_direct_validator_flags == 1 )); then
-    log "Genesis built using explicit --ibft-validator entries for node1..node4"
-  else
-    log "Genesis built using --ibft-validators-prefix-path from node1..node4 secrets"
-  fi
+  log "Genesis built using --validators-path/--validators-prefix with IBFT BLS validators"
 }
 
 normalize_forks_for_polygon_edge() {
