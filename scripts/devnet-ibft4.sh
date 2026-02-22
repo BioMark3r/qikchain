@@ -206,12 +206,7 @@ normalize_forks_for_polygon_edge() {
             .key == "byzantium" or
             .key == "constantinople" or
             .key == "petersburg" or
-            .key == "istanbul" or
-            .key == "london" or
-            .key == "eip150" or
-            .key == "eip155" or
-            .key == "eip158" or
-            .key == "txHashWithType"
+            .key == "istanbul"
           )
           | if (.value | type) == "number" then
               .value = {"block": .value}
