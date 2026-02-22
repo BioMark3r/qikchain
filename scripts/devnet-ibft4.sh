@@ -160,15 +160,16 @@ build_genesis() {
     local out
     out="$("$EDGE_BIN" secrets output --data-dir "$secrets")"
 
-    local addr
+    local addr=""
     addr="$(echo "$out" | sed -nE \
       -e 's/.*Public key \(address\)[[:space:]]*=[[:space:]]*(0x[0-9a-fA-F]{40}).*/\1/p' \
       -e 's/.*(Validator[[:space:]]+)?Address[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]{40}).*/\2/p' \
-      | head -n1)"    [[ -n "$addr" ]] || {
+      | head -n1 || true)"
+    if [[ -z "$addr" ]]; then
       echo "ERROR: could not parse validator address for node$i from secrets output"
       echo "$out"
       exit 1
-    }
+    fi
     validator_addresses+=("$addr")
 
     local blspub
