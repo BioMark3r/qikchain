@@ -158,7 +158,7 @@ build_genesis() {
   for i in 1 2 3 4; do
     local secrets="${NODE_DIRS[$((i-1))]}/secrets"
     local out
-    out="$($EDGE_BIN secrets output --data-dir "$secrets")"
+    out="$("$EDGE_BIN" secrets output --data-dir "$secrets")"
 
     local addr
     addr="$(echo "$out" | sed -nE 's/.*(Validator[[:space:]]+)?Address[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\2/p' | head -n1)"
