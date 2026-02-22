@@ -198,16 +198,6 @@ allocations-verify: build-qikchain
 	"$(QIKCHAIN_BIN)" allocations verify --file "$(ALLOCATIONS_FILE)"
 
 up: build
-	# Kill any running polygon-edge servers before starting new ones
-	echo "[cleanup] stopping existing polygon-edge processes..."
-	pkill -f polygon-edge 2>/dev/null || true
-	sleep 1
-	# Ensure ports are free
-	if ss -ltn | egrep ':(8545|8546|8547|8548|9632|9633|9634|9635|9090|9091|9092|9093|1478|1479|1480|1481)\b' >/dev/null; then
-	  	echo "ERROR: One or more required ports are still in use."
-	  	ss -ltnp | egrep ':(8545|9632|9090|1478)\b' || true
-	  	exit 1
-	fi
 	@echo "==> Starting devnet (CONSENSUS=$(CONSENSUS))"
 	CONSENSUS="$(CONSENSUS)" INSECURE_SECRETS="$(INSECURE_SECRETS)" RESET="$(RESET)" CHAIN_ID="$(CHAIN_ID)" ENV="$(ENV)" POS_DEPLOYMENTS="$(POS_DEPLOYMENTS)" \
 		bash "$(DEVNET_UP_SCRIPT)"
