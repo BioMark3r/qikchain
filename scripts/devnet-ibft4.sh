@@ -64,6 +64,7 @@ METRICS_PORTS=(9090 9091 9092 9093)
 
 # Node dirs
 NODE_DIRS=("$NET_DIR/node1" "$NET_DIR/node2" "$NET_DIR/node3" "$NET_DIR/node4")
+BOOTNODE1=""
 
 METRICS_FLAG="--prometheus"
 if "$EDGE_BIN" server --help 2>&1 | rg -q -- "--prometheus"; then
@@ -115,14 +116,13 @@ reset_net() {
 init_secrets_if_needed() {
   for i in 1 2 3 4; do
     local dir="${NODE_DIRS[$((i-1))]}"
-    local secrets="$dir/secrets"
-    if [[ ! -d "$secrets" ]]; then
-      log "Initializing secrets for node$i in $secrets"
-      mkdir -p "$secrets"
+    if [[ ! -f "$dir/consensus/validator.key" ]]; then
+      log "Initializing secrets for node$i in $dir"
+      mkdir -p "$dir"
       if [[ "$INSECURE_SECRETS" == "1" ]]; then
-        "$EDGE_BIN" secrets init --data-dir "$secrets" --insecure >/dev/null
+        "$EDGE_BIN" secrets init --data-dir "$dir" --insecure >/dev/null
       else
-        "$EDGE_BIN" secrets init --data-dir "$secrets" >/dev/null
+        "$EDGE_BIN" secrets init --data-dir "$dir" >/dev/null
       fi
     fi
   done
@@ -134,31 +134,27 @@ init_secrets_if_needed() {
 # However, without repo-specific precedent, we keep it simple:
 # - Start node1 first
 # - Use node1 as bootnode for nodes2-4 (requires node1 libp2p address)
-get_node1_bootnode_addr() {
-  local node1_dir="${NODE_DIRS[0]}"
-  local secrets="$node1_dir/secrets"
+derive_bootnode_multiaddr() {
+  local edge="$1"
+  local node1_dir="$2"
+  local node1_p2p_port="$3"
+  local bootnode_ip="${4:-127.0.0.1}"
 
-  # polygon-edge can print node ID via:
-  #   polygon-edge secrets output --data-dir <secrets>
-  # We'll attempt to read it. If this differs in your build, adjust this function.
-  local out
-  out="$("$EDGE_BIN" secrets output --data-dir "$secrets" 2>/dev/null || true)"
-  # Expected to contain something like "Node ID: <peerID>" (varies by version).
-  # Try to extract a peer ID-ish token:
-  local peer_id
-  peer_id="$(echo "$out" | sed -nE 's/.*(Node ID:|node id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
-  if [[ -z "${peer_id:-}" ]]; then
-    # Fallback: try "Peer ID:"
-    peer_id="$(echo "$out" | sed -nE 's/.*(Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
+  local out node_id
+  out="$("$edge" secrets output --data-dir "$node1_dir")"
+  node_id="$(printf '%s\n' "$out" | awk -F': ' '/^node_id:/ {print $2; exit}')"
+
+  if [[ -z "${node_id:-}" ]]; then
+    node_id="$(printf '%s\n' "$out" | grep -Eo '16Uiu2H[0-9A-Za-z]+' | head -n1 || true)"
   fi
 
-  if [[ -z "${peer_id:-}" ]]; then
-    echo ""
-    return 0
+  if [[ -z "${node_id:-}" ]]; then
+    echo "ERROR: Could not derive node1 node_id from secrets output:" >&2
+    echo "$out" >&2
+    return 1
   fi
 
-  # Bootnode multiaddr (assumes TCP + local)
-  echo "/ip4/127.0.0.1/tcp/${P2P_PORTS[0]}/p2p/${peer_id}"
+  printf '/ip4/%s/tcp/%s/p2p/%s\n' "$bootnode_ip" "$node1_p2p_port" "$node_id"
 }
 
 build_genesis() {
@@ -179,31 +175,9 @@ build_genesis() {
 
   local node1_dir="$NET_DIR/node1"
   local node1_p2p_port="${NODE1_P2P_PORT:-${P2P_PORTS[0]:-1478}}"
-  local node1_out
-  if ! node1_out="$("$EDGE_BIN" secrets output --data-dir "$node1_dir/secrets" 2>/dev/null)"; then
-    echo "ERROR: failed to read node1 secrets output from $node1_dir/secrets"
-    echo "Make sure node1 secrets exist and polygon-edge supports: secrets output --data-dir"
-    exit 1
-  fi
-
-  local node1_node_id
-  node1_node_id="$(printf '%s\n' "$node1_out" | awk -F': ' '/node_id/ {print $2; exit}')"
-  if [[ -z "${node1_node_id:-}" ]]; then
-    node1_node_id="$(printf '%s\n' "$node1_out" | sed -nE 's/.*(Node ID:|node id:|Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
-  fi
-  if [[ -z "${node1_node_id:-}" ]]; then
-    node1_node_id="$(printf '%s\n' "$node1_out" | grep -Eo '16Uiu2H[0-9A-Za-z]+' | head -n1 || true)"
-  fi
-
-  if [[ -z "${node1_node_id:-}" ]]; then
-    echo "ERROR: could not extract node_id from node1 secrets output:"
-    echo "$node1_out"
-    exit 1
-  fi
-
   local bootnode_ip="${BOOTNODE_IP:-127.0.0.1}"
-  local bootnode1="/ip4/${bootnode_ip}/tcp/${node1_p2p_port}/p2p/${node1_node_id}"
-  log "[bootnode] using: ${bootnode1}"
+  BOOTNODE1="$(derive_bootnode_multiaddr "$EDGE_BIN" "$node1_dir" "$node1_p2p_port" "$bootnode_ip")"
+  log "[bootnode] BOOTNODE1=${BOOTNODE1}"
 
   local args=(
     genesis
@@ -216,7 +190,7 @@ build_genesis() {
     --dir "$GENESIS_OUT"
     --validators-path "$validators_root"
     --validators-prefix "test-chain-"
-    --bootnode "$bootnode1"
+    --bootnode "$BOOTNODE1"
   )
 
   log "Validators path: $validators_root (prefix=test-chain-)"
@@ -293,9 +267,9 @@ start_node() {
     return 0
   fi
 
-  local bootnode=""
-  if [[ "$idx" != "0" ]]; then
-    bootnode="$(get_node1_bootnode_addr)"
+  local bootnode="$BOOTNODE1"
+  if [[ "$idx" == "0" ]]; then
+    bootnode=""
   fi
 
   log "Starting node$node_num (rpc=$rpc p2p=$p2p metrics=$metrics) ..."
