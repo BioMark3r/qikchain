@@ -11,6 +11,7 @@ import (
 	"github.com/BioMark3r/qikchain/internal/allocations"
 	"github.com/BioMark3r/qikchain/internal/chainmeta"
 	"github.com/BioMark3r/qikchain/internal/config"
+	"github.com/BioMark3r/qikchain/internal/edge"
 )
 
 type BuildOptions struct {
@@ -36,6 +37,7 @@ type BuildOptions struct {
 	AllowMissingPOSAddresses bool
 	AcceptLegacyConsensus    bool
 	Pretty                   bool
+	SupportedForks           []string
 }
 
 type POSAddresses struct {
@@ -132,7 +134,7 @@ func Build(opts BuildOptions) (BuildResult, error) {
 	combined := DeepMerge(base, overlay)
 	removeForbiddenTopLevelKeys(combined)
 	ensureParamsEngineIBFT(combined, overlay)
-	ensureParamsForks(combined, opts.Env)
+	ensureParamsForks(combined, opts.Env, opts.SupportedForks)
 
 	ethGenesis, _ := combined["genesis"].(map[string]any)
 	if ethGenesis == nil {
@@ -210,7 +212,7 @@ func ensureParamsEngineIBFT(base map[string]any, overlay map[string]any) {
 	}
 }
 
-func ensureParamsForks(doc map[string]any, env string) {
+func ensureParamsForks(doc map[string]any, env string, supported []string) {
 	params, _ := doc["params"].(map[string]any)
 	if params == nil {
 		params = map[string]any{}
@@ -221,20 +223,15 @@ func ensureParamsForks(doc map[string]any, env string) {
 	}
 
 	if strings.EqualFold(env, "devnet") {
-		params["forks"] = toAnyForkMap(map[string]ForkObject{
-			"homestead":           {Block: 0},
-			"byzantium":           {Block: 0},
-			"constantinople":      {Block: 0},
-			"petersburg":          {Block: 0},
-			"istanbul":            {Block: 0},
-			"london":              {Block: 0},
-			"eip150":              {Block: 0},
-			"eip155":              {Block: 0},
-			"eip158":              {Block: 0},
-			"quorumCalcAlignment": {Block: 0},
-			"txHashWithType":      {Block: 0},
-			"londonFix":           {Block: 0},
-		})
+		desired := edge.DesiredForks()
+		if len(supported) > 0 {
+			desired = edge.FilterSupportedForks(desired, supported)
+		}
+		forks := make(map[string]ForkObject, len(desired))
+		for _, key := range desired {
+			forks[key] = ForkObject{Block: 0}
+		}
+		params["forks"] = toAnyForkMap(forks)
 		return
 	}
 

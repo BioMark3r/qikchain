@@ -166,3 +166,35 @@ func TestGenesisBuildWritesCombinedOutput(t *testing.T) {
 		t.Fatalf("expected gasLimit in embedded genesis")
 	}
 }
+
+func TestGenesisBuildFiltersUnsupportedForks(t *testing.T) {
+	opts := BuildOptions{Consensus: "poa", Env: "devnet", TemplatePath: "../../config/genesis.template.json", OverlayDir: "../../config/consensus", TokenPath: "../../config/token.json", AllocationsPath: "../../config/allocations/devnet.json", ChainID: 100, GasLimit: "0x1c9c380", Difficulty: "0x1", ExtraData: "0x", MinGasPrice: "0", BaseFeeEnabled: false, Pretty: true, Strict: true, SupportedForks: []string{"homestead", "istanbul"}}
+	res, err := Build(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var combinedDoc map[string]any
+	if err := json.Unmarshal(res.GenesisJSON, &combinedDoc); err != nil {
+		t.Fatal(err)
+	}
+	params, ok := combinedDoc["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("combined output must include params object")
+	}
+	forks, ok := params["forks"].(map[string]any)
+	if !ok || forks == nil {
+		t.Fatalf("combined output must include params.forks object")
+	}
+	if len(forks) != 2 {
+		t.Fatalf("expected only supported forks to remain, got %d", len(forks))
+	}
+	if _, ok := forks["homestead"]; !ok {
+		t.Fatalf("expected homestead")
+	}
+	if _, ok := forks["istanbul"]; !ok {
+		t.Fatalf("expected istanbul")
+	}
+	if _, ok := forks["london"]; ok {
+		t.Fatalf("did not expect london")
+	}
+}

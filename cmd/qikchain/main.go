@@ -18,6 +18,7 @@ import (
 	"github.com/BioMark3r/qikchain/internal/allocations"
 	"github.com/BioMark3r/qikchain/internal/chainmeta"
 	"github.com/BioMark3r/qikchain/internal/config"
+	"github.com/BioMark3r/qikchain/internal/edge"
 	"github.com/BioMark3r/qikchain/internal/genesis"
 )
 
@@ -45,6 +46,8 @@ func run(argv []string) int {
 		return cmdChain(argv[1:])
 	case "genesis":
 		return cmdGenesis(argv[1:])
+	case "edge":
+		return cmdEdge(argv[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "qikchain: unknown command %q (try --help)\n", argv[0])
 		return 2
@@ -64,7 +67,31 @@ Usage:
   qikchain genesis build [--consensus poa|pos --env devnet|staging|mainnet]
   qikchain genesis validate --chain build/genesis.json [--genesis build/genesis-eth.json]
   qikchain genesis print --file build/chain.json [--json]
+  qikchain edge forks
 `)
+}
+
+func cmdEdge(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "edge: expected subcommand (forks)")
+		return 2
+	}
+	switch args[0] {
+	case "forks":
+		root, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "edge forks:", err)
+			return 1
+		}
+		forks, _ := edge.DetectSupportedForks(root)
+		for _, key := range forks {
+			fmt.Println(key)
+		}
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "edge: unknown subcommand %q\n", args[0])
+		return 2
+	}
 }
 
 func cmdAllocations(args []string) int {
@@ -170,6 +197,13 @@ func cmdGenesisBuild(args []string) int {
 		return 2
 	}
 
+	root, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "genesis build:", err)
+		return 1
+	}
+	supportedForks, _ := edge.DetectSupportedForks(root)
+
 	opts := genesis.BuildOptions{
 		Consensus:                *consensus,
 		Env:                      *env,
@@ -193,6 +227,7 @@ func cmdGenesisBuild(args []string) int {
 		AllowMissingPOSAddresses: *allowMissingPOS,
 		AcceptLegacyConsensus:    *acceptLegacyConsensus,
 		Pretty:                   *pretty,
+		SupportedForks:           supportedForks,
 	}
 
 	res, err := genesis.Build(opts)
