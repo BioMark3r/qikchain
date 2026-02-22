@@ -260,11 +260,6 @@ start_node() {
     return 0
   fi
 
-  local join_multiaddr=""
-  if [[ "$idx" != "0" ]]; then
-    join_multiaddr="$NODE1_MULTIADDR"
-  fi
-
   log "Starting node$node_num (rpc=$rpc p2p=$p2p metrics=$metrics) ..."
   # Note: Adjust flags if your polygon-edge build differs.
   # Common flags include: --data-dir, --chain, --grpc-address, --jsonrpc, --libp2p, --seal, --prometheus
@@ -272,24 +267,13 @@ start_node() {
   # We keep it minimal + explicit port bindings.
   (
     set -x
-    if [[ -n "$join_multiaddr" ]]; then
-      "$EDGE_BIN" server \
-        --data-dir "$dir" \
-        --chain "$CHAIN_PATH" \
-        --grpc-address "127.0.0.1:$grpc" \
-        --jsonrpc "127.0.0.1:$rpc" \
-        --libp2p "127.0.0.1:$p2p" \
-        "$METRICS_FLAG" "127.0.0.1:$metrics" \
-        --join "$join_multiaddr"
-    else
-      "$EDGE_BIN" server \
-        --data-dir "$dir" \
-        --chain "$CHAIN_PATH" \
-        --grpc-address "127.0.0.1:$grpc" \
-        --jsonrpc "127.0.0.1:$rpc" \
-        --libp2p "127.0.0.1:$p2p" \
-        "$METRICS_FLAG" "127.0.0.1:$metrics"
-    fi
+    "$EDGE_BIN" server \
+      --data-dir "$dir" \
+      --chain "$CHAIN_PATH" \
+      --grpc-address "127.0.0.1:$grpc" \
+      --jsonrpc "127.0.0.1:$rpc" \
+      --libp2p "127.0.0.1:$p2p" \
+      "$METRICS_FLAG" "127.0.0.1:$metrics"
   ) >"$log_file" 2>&1 &
 
   echo "$!" > "$pid_file"
@@ -336,7 +320,9 @@ main() {
   start_node 0
   sleep 1
   start_node 1
+  sleep 1
   start_node 2
+  sleep 1
   start_node 3
 
   status_hint
