@@ -168,12 +168,6 @@ main() {
   local metrics_flag
   metrics_flag="$(detect_metrics_flag)"
 
-  local join_arg=()
-  if [[ "$NODE_NAME" != "node1" ]]; then
-    join_arg=(--join "$(cat "$NODE1_MULTIADDR_FILE")")
-    log "Using join multiaddr: ${join_arg[1]}"
-  fi
-
   log "Starting polygon-edge"
   exec "$EDGE_BIN" server \
     --data-dir "$NODE_DATA_DIR" \
@@ -181,8 +175,7 @@ main() {
     --grpc-address "0.0.0.0:${GRPC_PORT}" \
     --jsonrpc "0.0.0.0:${RPC_PORT}" \
     --libp2p "0.0.0.0:${P2P_PORT}" \
-    "$metrics_flag" "0.0.0.0:${METRICS_PORT}" \
-    "${join_arg[@]}"
+    "$metrics_flag" "0.0.0.0:${METRICS_PORT}"
 }
 
 main "$@"
