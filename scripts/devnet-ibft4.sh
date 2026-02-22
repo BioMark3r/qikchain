@@ -40,7 +40,7 @@ INSECURE_SECRETS="${INSECURE_SECRETS:-1}"  # dev-only
 
 # Chain config
 CHAIN_ID="${CHAIN_ID:-100}"
-BLOCK_GAS_LIMIT="${BLOCK_GAS_LIMIT:-15000000}"
+BLOCK_GAS_LIMIT="${BLOCK_GAS_LIMIT:-0x1c9c380}"
 MIN_GAS_PRICE="${MIN_GAS_PRICE:-0}"
 BASE_FEE_ENABLED="${BASE_FEE_ENABLED:-false}"
 
@@ -146,42 +146,83 @@ get_node1_bootnode_addr() {
 }
 
 build_genesis() {
-  log "Building genesis via CLI (consensus=$CONSENSUS env=$ENV_NAME chainId=$CHAIN_ID)"
-  log "Combined chain output: $GENESIS_OUT"
-  log "Chain output (split mode): $CHAIN_SPLIT_OUT"
-  log "Eth genesis output (split mode): $GENESIS_ETH_OUT"
-  local args=(
-    genesis build
-    --consensus "$CONSENSUS"
-    --env "$ENV_NAME"
-    --chain-id "$CHAIN_ID"
-    --block-gas-limit "$BLOCK_GAS_LIMIT"
-    --min-gas-price "$MIN_GAS_PRICE"
-    --base-fee-enabled "$BASE_FEE_ENABLED"
-    --allocations "$ALLOCATIONS_FILE"
-    --token "$TOKEN_FILE"
-    --out-combined "$GENESIS_OUT"
-    --out-chain "$CHAIN_SPLIT_OUT"
-    --out-genesis "$GENESIS_ETH_OUT"
-    --metadata-out "$METADATA_OUT"
-  )
-
-  # For PoS we try to inject addresses if deployments exist
-  if [[ "$CONSENSUS" == "pos" ]]; then
-    args+=(--pos-deployments "$POS_DEPLOYMENTS")
-    # If deployments missing, you can allow missing placeholders by setting:
-    #   ALLOW_MISSING_POS=1
-    if [[ "${ALLOW_MISSING_POS:-0}" == "1" ]]; then
-      args+=(--allow-missing-pos-addresses)
-    fi
+  if [[ "$CONSENSUS" != "poa" && "$CONSENSUS" != "ibft" ]]; then
+    log "WARNING: CONSENSUS=$CONSENSUS requested, but Phase 0 devnet genesis is forced to polygon-edge IBFT."
   fi
 
-  "$QIKCHAIN_BIN" "${args[@]}"
+  log "Building Polygon Edge IBFT genesis (chainId=$CHAIN_ID blockTime=2s)"
+  log "Genesis output: $GENESIS_OUT"
 
-  normalize_forks_for_polygon_edge "$GENESIS_OUT"
-  normalize_forks_for_polygon_edge "$CHAIN_SPLIT_OUT"
+  local validator_addresses=()
+  local validator_blspubs=()
+  for i in 1 2 3 4; do
+    local secrets="${NODE_DIRS[$((i-1))]}/secrets"
+    local out
+    out="$($EDGE_BIN secrets output --data-dir "$secrets")"
 
-  "$QIKCHAIN_BIN" genesis validate --chain "$GENESIS_OUT"
+    local addr
+    addr="$(echo "$out" | sed -nE 's/.*(Validator[[:space:]]+)?Address[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\2/p' | head -n1)"
+    [[ -n "$addr" ]] || {
+      echo "ERROR: could not parse validator address for node$i from secrets output"
+      echo "$out"
+      exit 1
+    }
+    validator_addresses+=("$addr")
+
+    local blspub
+    blspub="$(echo "$out" | sed -nE 's/.*(BLS[[:space:]]+)?(Public key|Pubkey)[[:space:]]*[:=][[:space:]]*([0-9a-fA-Fx]+).*/\3/p' | head -n1)"
+    if [[ -n "$blspub" ]]; then
+      validator_blspubs+=("$blspub")
+    fi
+  done
+
+  local bootnodes=()
+  for i in 1 2 3 4; do
+    local peer_id
+    peer_id="$($EDGE_BIN secrets output --data-dir "${NODE_DIRS[$((i-1))]}/secrets" 2>/dev/null | sed -nE 's/.*(Node ID:|node id:|Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
+    [[ -n "$peer_id" ]] || continue
+    bootnodes+=("/ip4/127.0.0.1/tcp/${P2P_PORTS[$((i-1))]}/p2p/$peer_id")
+  done
+
+  local args=(
+    genesis
+    --consensus ibft
+    --chain-id "$CHAIN_ID"
+    --block-gas-limit "$BLOCK_GAS_LIMIT"
+    --block-time 2s
+    --dir "$GENESIS_OUT"
+  )
+
+  for b in "${bootnodes[@]}"; do
+    args+=(--bootnode "$b")
+  done
+
+  local used_direct_validator_flags=0
+  if "$EDGE_BIN" genesis --help 2>&1 | rg -q -- "--ibft-validator"; then
+    for v in "${validator_addresses[@]}"; do
+      args+=(--ibft-validator "$v")
+    done
+    used_direct_validator_flags=1
+  elif "$EDGE_BIN" genesis --help 2>&1 | rg -q -- "--ibft-validators-prefix-path"; then
+    args+=(--ibft-validators-prefix-path "$NET_DIR/node")
+  else
+    echo "ERROR: polygon-edge genesis does not expose an IBFT validator flag we can use"
+    "$EDGE_BIN" genesis --help
+    exit 1
+  fi
+
+  log "Validators: ${validator_addresses[*]}"
+  if (( ${#validator_blspubs[@]} > 0 )); then
+    log "Collected BLS public keys for validators (count=${#validator_blspubs[@]})"
+  fi
+
+  "$EDGE_BIN" "${args[@]}"
+
+  if (( used_direct_validator_flags == 1 )); then
+    log "Genesis built using explicit --ibft-validator entries for node1..node4"
+  else
+    log "Genesis built using --ibft-validators-prefix-path from node1..node4 secrets"
+  fi
 }
 
 normalize_forks_for_polygon_edge() {
@@ -317,7 +358,6 @@ EOF
 
 main() {
   require_bin "$EDGE_BIN"
-  require_bin "$QIKCHAIN_BIN"
 
   ensure_dirs
   reset_net
