@@ -30,7 +30,7 @@ CHAIN_OUT="$BUILD_DIR/chain.json"
 COMBINED_OUT="$BUILD_DIR/genesis.json"
 GENESIS_OUT="$BUILD_DIR/genesis-eth.json"
 METADATA_OUT="$BUILD_DIR/chain-metadata.json"
-BOOTNODE_FILE="$BUILD_DIR/node1.bootnode"
+NODE1_MULTIADDR_FILE="$BUILD_DIR/node1.multiaddr"
 
 NODE_DATA_DIR="${NODE_DATA_DIR:-/data/$NODE_NAME}"
 SECRETS_DIR="$NODE_DATA_DIR/secrets"
@@ -128,7 +128,7 @@ detect_metrics_flag() {
   echo "--metrics"
 }
 
-write_bootnode_file_if_node1() {
+write_node1_multiaddr_file_if_node1() {
   if [[ "$NODE_NAME" != "node1" ]]; then
     return 0
   fi
@@ -136,12 +136,13 @@ write_bootnode_file_if_node1() {
   local peer_id
   peer_id="$(extract_peer_id)"
   if [[ -z "$peer_id" ]]; then
-    echo "Unable to derive node1 peer ID for bootnode" >&2
+    echo "Unable to derive node1 peer ID for multiaddr" >&2
     exit 1
   fi
 
-  echo "/dns4/${NODE_HOSTNAME}/tcp/${P2P_PORT}/p2p/${peer_id}" >"$BOOTNODE_FILE"
-  log "Bootnode written to $BOOTNODE_FILE"
+  local node1_p2p_port="${NODE1_P2P_PORT:-1478}"
+  echo "/ip4/127.0.0.1/tcp/${node1_p2p_port}/p2p/${peer_id}" >"$NODE1_MULTIADDR_FILE"
+  log "node1 multiaddr written to $NODE1_MULTIADDR_FILE"
 }
 
 main() {
@@ -159,18 +160,18 @@ main() {
 
   ensure_secrets
   if [[ "$NODE_NAME" == "node1" ]]; then
-    write_bootnode_file_if_node1
+    write_node1_multiaddr_file_if_node1
   else
-    wait_for_file "$BOOTNODE_FILE" 180
+    wait_for_file "$NODE1_MULTIADDR_FILE" 180
   fi
 
   local metrics_flag
   metrics_flag="$(detect_metrics_flag)"
 
-  local bootnode_arg=()
+  local join_arg=()
   if [[ "$NODE_NAME" != "node1" ]]; then
-    bootnode_arg=(--bootnode "$(cat "$BOOTNODE_FILE")")
-    log "Using bootnode: ${bootnode_arg[1]}"
+    join_arg=(--join "$(cat "$NODE1_MULTIADDR_FILE")")
+    log "Using join multiaddr: ${join_arg[1]}"
   fi
 
   log "Starting polygon-edge"
@@ -181,7 +182,7 @@ main() {
     --jsonrpc "0.0.0.0:${RPC_PORT}" \
     --libp2p "0.0.0.0:${P2P_PORT}" \
     "$metrics_flag" "0.0.0.0:${METRICS_PORT}" \
-    "${bootnode_arg[@]}"
+    "${join_arg[@]}"
 }
 
 main "$@"

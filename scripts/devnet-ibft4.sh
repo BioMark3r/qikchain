@@ -64,7 +64,7 @@ METRICS_PORTS=(9090 9091 9092 9093)
 
 # Node dirs
 NODE_DIRS=("$NET_DIR/node1" "$NET_DIR/node2" "$NET_DIR/node3" "$NET_DIR/node4")
-BOOTNODE1=""
+NODE1_MULTIADDR=""
 
 METRICS_FLAG="--prometheus"
 if "$EDGE_BIN" server --help 2>&1 | rg -q -- "--prometheus"; then
@@ -128,17 +128,9 @@ init_secrets_if_needed() {
   done
 }
 
-# Build bootnode list (multiaddr) from node1 (or use all nodes)
-# polygon-edge uses libp2p multiaddr; we can use node key output.
-# We'll derive enode-like? For polygon-edge, easiest is to use "server --bootnode" with libp2p addr.
-# However, without repo-specific precedent, we keep it simple:
-# - Start node1 first
-# - Use node1 as bootnode for nodes2-4 (requires node1 libp2p address)
-derive_bootnode_multiaddr() {
+derive_node_id() {
   local edge="$1"
   local node1_dir="$2"
-  local node1_p2p_port="$3"
-  local bootnode_ip="${4:-127.0.0.1}"
 
   local out node_id
   out="$("$edge" secrets output --data-dir "$node1_dir")"
@@ -154,7 +146,7 @@ derive_bootnode_multiaddr() {
     return 1
   fi
 
-  printf '/ip4/%s/tcp/%s/p2p/%s\n' "$bootnode_ip" "$node1_p2p_port" "$node_id"
+  printf '%s\n' "$node_id"
 }
 
 build_genesis() {
@@ -175,9 +167,10 @@ build_genesis() {
 
   local node1_dir="$NET_DIR/node1"
   local node1_p2p_port="${NODE1_P2P_PORT:-${P2P_PORTS[0]:-1478}}"
-  local bootnode_ip="${BOOTNODE_IP:-127.0.0.1}"
-  BOOTNODE1="$(derive_bootnode_multiaddr "$EDGE_BIN" "$node1_dir" "$node1_p2p_port" "$bootnode_ip")"
-  log "[bootnode] BOOTNODE1=${BOOTNODE1}"
+  local node1_node_id
+  node1_node_id="$(derive_node_id "$EDGE_BIN" "$node1_dir")"
+  NODE1_MULTIADDR="/ip4/127.0.0.1/tcp/${node1_p2p_port}/p2p/${node1_node_id}"
+  log "[p2p] NODE1_MULTIADDR=${NODE1_MULTIADDR}"
 
   local args=(
     genesis
@@ -190,7 +183,7 @@ build_genesis() {
     --dir "$GENESIS_OUT"
     --validators-path "$validators_root"
     --validators-prefix "test-chain-"
-    --bootnode "$BOOTNODE1"
+    --bootnode "$NODE1_MULTIADDR"
   )
 
   log "Validators path: $validators_root (prefix=test-chain-)"
@@ -267,9 +260,9 @@ start_node() {
     return 0
   fi
 
-  local bootnode="$BOOTNODE1"
-  if [[ "$idx" == "0" ]]; then
-    bootnode=""
+  local join_multiaddr=""
+  if [[ "$idx" != "0" ]]; then
+    join_multiaddr="$NODE1_MULTIADDR"
   fi
 
   log "Starting node$node_num (rpc=$rpc p2p=$p2p metrics=$metrics) ..."
@@ -279,7 +272,7 @@ start_node() {
   # We keep it minimal + explicit port bindings.
   (
     set -x
-    if [[ -n "$bootnode" ]]; then
+    if [[ -n "$join_multiaddr" ]]; then
       "$EDGE_BIN" server \
         --data-dir "$dir" \
         --chain "$CHAIN_PATH" \
@@ -287,7 +280,7 @@ start_node() {
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
         "$METRICS_FLAG" "127.0.0.1:$metrics" \
-        --bootnode "$bootnode"
+        --join "$join_multiaddr"
     else
       "$EDGE_BIN" server \
         --data-dir "$dir" \
