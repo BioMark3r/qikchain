@@ -177,13 +177,33 @@ build_genesis() {
   ln -sfn "$NET_DIR/node3" "$validators_root/test-chain-3"
   ln -sfn "$NET_DIR/node4" "$validators_root/test-chain-4"
 
-  local bootnodes=()
-  for i in 1 2 3 4; do
-    local peer_id
-    peer_id="$("$EDGE_BIN" secrets output --data-dir "${NODE_DIRS[$((i-1))]}/secrets" 2>/dev/null | sed -nE 's/.*(Node ID:|node id:|Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
-    [[ -n "$peer_id" ]] || continue
-    bootnodes+=("/ip4/127.0.0.1/tcp/${P2P_PORTS[$((i-1))]}/p2p/$peer_id")
-  done
+  local node1_dir="$NET_DIR/node1"
+  local node1_p2p_port="${NODE1_P2P_PORT:-${P2P_PORTS[0]:-1478}}"
+  local node1_out
+  if ! node1_out="$("$EDGE_BIN" secrets output --data-dir "$node1_dir/secrets" 2>/dev/null)"; then
+    echo "ERROR: failed to read node1 secrets output from $node1_dir/secrets"
+    echo "Make sure node1 secrets exist and polygon-edge supports: secrets output --data-dir"
+    exit 1
+  fi
+
+  local node1_node_id
+  node1_node_id="$(printf '%s\n' "$node1_out" | awk -F': ' '/node_id/ {print $2; exit}')"
+  if [[ -z "${node1_node_id:-}" ]]; then
+    node1_node_id="$(printf '%s\n' "$node1_out" | sed -nE 's/.*(Node ID:|node id:|Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
+  fi
+  if [[ -z "${node1_node_id:-}" ]]; then
+    node1_node_id="$(printf '%s\n' "$node1_out" | grep -Eo '16Uiu2H[0-9A-Za-z]+' | head -n1 || true)"
+  fi
+
+  if [[ -z "${node1_node_id:-}" ]]; then
+    echo "ERROR: could not extract node_id from node1 secrets output:"
+    echo "$node1_out"
+    exit 1
+  fi
+
+  local bootnode_ip="${BOOTNODE_IP:-127.0.0.1}"
+  local bootnode1="/ip4/${bootnode_ip}/tcp/${node1_p2p_port}/p2p/${node1_node_id}"
+  log "[bootnode] using: ${bootnode1}"
 
   local args=(
     genesis
@@ -196,11 +216,8 @@ build_genesis() {
     --dir "$GENESIS_OUT"
     --validators-path "$validators_root"
     --validators-prefix "test-chain-"
+    --bootnode "$bootnode1"
   )
-
-  for b in "${bootnodes[@]}"; do
-    args+=(--bootnode "$b")
-  done
 
   log "Validators path: $validators_root (prefix=test-chain-)"
 
