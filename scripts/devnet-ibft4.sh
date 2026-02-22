@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
 # ============================================================
 # QikChain Devnet Startup: IBFT 4-node (PoA or PoS)
@@ -46,6 +47,7 @@ BASE_FEE_ENABLED="${BASE_FEE_ENABLED:-false}"
 
 # Files
 GENESIS_OUT="${GENESIS_OUT:-$ROOT/build/genesis.json}"
+CHAIN_PATH="${CHAIN_PATH:-$GENESIS_OUT}"
 CHAIN_SPLIT_OUT="${CHAIN_SPLIT_OUT:-$ROOT/build/chain.json}"
 GENESIS_ETH_OUT="${GENESIS_ETH_OUT:-$ROOT/build/genesis-eth.json}"
 METADATA_OUT="${METADATA_OUT:-$ROOT/build/chain-metadata.json}"
@@ -69,8 +71,21 @@ elif "$EDGE_BIN" server --help 2>&1 | rg -q -- "--metrics"; then
   METRICS_FLAG="--metrics"
 fi
 
-
 log() { echo "[$(date +"%H:%M:%S")] $*"; }
+
+if [[ "${DEBUG:-0}" == "1" ]]; then
+  log "Resolved paths (shell-escaped):"
+  printf '  ROOT=%q\n' "$ROOT"
+  printf '  EDGE_BIN=%q\n' "$EDGE_BIN"
+  printf '  QIKCHAIN_BIN=%q\n' "$QIKCHAIN_BIN"
+  printf '  DATA_ROOT=%q\n' "$DATA_ROOT"
+  printf '  NET_DIR=%q\n' "$NET_DIR"
+  printf '  GENESIS_OUT=%q\n' "$GENESIS_OUT"
+  printf '  CHAIN_PATH=%q\n' "$CHAIN_PATH"
+  for i in "${!NODE_DIRS[@]}"; do
+    printf '  NODE_DIRS[%d]=%q\n' "$i" "${NODE_DIRS[$i]}"
+  done
+fi
 
 require_bin() {
   local b="$1"
@@ -158,7 +173,7 @@ build_genesis() {
   for i in 1 2 3 4; do
     local secrets="${NODE_DIRS[$((i-1))]}/secrets"
     local out
-    out="$($EDGE_BIN secrets output --data-dir "$secrets")"
+    out="$("$EDGE_BIN" secrets output --data-dir "$secrets")"
 
     local addr
     addr="$(echo "$out" | sed -nE 's/.*(Validator[[:space:]]+)?Address[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\2/p' | head -n1)"
@@ -179,7 +194,7 @@ build_genesis() {
   local bootnodes=()
   for i in 1 2 3 4; do
     local peer_id
-    peer_id="$($EDGE_BIN secrets output --data-dir "${NODE_DIRS[$((i-1))]}/secrets" 2>/dev/null | sed -nE 's/.*(Node ID:|node id:|Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
+    peer_id="$("$EDGE_BIN" secrets output --data-dir "${NODE_DIRS[$((i-1))]}/secrets" 2>/dev/null | sed -nE 's/.*(Node ID:|node id:|Peer ID:|peer id:)\s*([A-Za-z0-9]+).*/\2/p' | head -n1)"
     [[ -n "$peer_id" ]] || continue
     bootnodes+=("/ip4/127.0.0.1/tcp/${P2P_PORTS[$((i-1))]}/p2p/$peer_id")
   done
@@ -258,7 +273,7 @@ normalize_forks_for_polygon_edge() {
             end
         )
     )
-  ' "$target" >"$tmp"; then
+  ' "$target" > "$tmp"; then
     mv "$tmp" "$target"
     local final_keys
     final_keys="$(jq -r '(.params.forks // {}) | keys | join(", ")' "$target")"
@@ -307,24 +322,24 @@ start_node() {
     if [[ -n "$bootnode" ]]; then
       "$EDGE_BIN" server \
         --data-dir "$dir" \
-        --chain "$ROOT/build/genesis.json" \
+        --chain "$CHAIN_PATH" \
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
-        ${METRICS_FLAG} "127.0.0.1:$metrics" \
+        "$METRICS_FLAG" "127.0.0.1:$metrics" \
         --bootnode "$bootnode"
     else
       "$EDGE_BIN" server \
         --data-dir "$dir" \
-        --chain "$ROOT/build/genesis.json" \
+        --chain "$CHAIN_PATH" \
         --grpc-address "127.0.0.1:$grpc" \
         --jsonrpc "127.0.0.1:$rpc" \
         --libp2p "127.0.0.1:$p2p" \
-        ${METRICS_FLAG} "127.0.0.1:$metrics"
+        "$METRICS_FLAG" "127.0.0.1:$metrics"
     fi
   ) >"$log_file" 2>&1 &
 
-  echo $! >"$pid_file"
+  echo "$!" > "$pid_file"
   log "node$node_num started (pid=$(cat "$pid_file")) logs=$log_file"
 }
 
