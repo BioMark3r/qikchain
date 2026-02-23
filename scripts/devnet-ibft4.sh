@@ -159,10 +159,13 @@ build_genesis() {
 
   local validators_root="$NET_DIR/validators"
   rm -rf "$validators_root"
+  mkdir -p "$validators_root"
   for i in 1 2 3 4; do
-    mkdir -p "$validators_root/test-chain-$i"
-    ln -sfn "$NET_DIR/node$i/secrets" "$validators_root/test-chain-$i/secrets"
+    ln -sfn "$NET_DIR/node$i" "$validators_root/test-chain-$i"
   done
+
+  log "Debug: validator directory layout under $validators_root/test-chain-1 (maxdepth=3)"
+  find "$validators_root/test-chain-1" -maxdepth 3 -print
 
   local node1_dir="$NET_DIR/node1"
   local node1_p2p_port="${NODE1_P2P_PORT:-${P2P_PORTS[0]:-1478}}"
