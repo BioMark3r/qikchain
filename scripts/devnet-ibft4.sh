@@ -128,25 +128,37 @@ init_secrets_if_needed() {
   done
 }
 
-derive_node_id() {
+derive_validator_from_secrets() {
   local edge="$1"
-  local node1_dir="$2"
+  local node_dir="$2"
+  local p2p_port="$3"
 
-  local out node_id
-  out="$("$edge" secrets output --data-dir "$node1_dir")"
-  node_id="$(printf '%s\n' "$out" | awk -F': ' '/^node_id:/ {print $2; exit}')"
+  local out node_id ecdsa_address bls_pubkey
+  out="$("$edge" secrets output --data-dir "$node_dir")"
+
+  node_id="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*Node ID[[:space:]]*[:=][[:space:]]*([^[:space:]]+).*/\1/p' | head -n1)"
+  ecdsa_address="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*Public key \(address\)[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | head -n1)"
+  bls_pubkey="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*BLS Public key[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | head -n1)"
 
   if [[ -z "${node_id:-}" ]]; then
     node_id="$(printf '%s\n' "$out" | grep -Eo '16Uiu2H[0-9A-Za-z]+' | head -n1 || true)"
   fi
 
-  if [[ -z "${node_id:-}" ]]; then
-    echo "ERROR: Could not derive node1 node_id from secrets output:" >&2
+  if [[ -z "${ecdsa_address:-}" ]]; then
+    ecdsa_address="$(printf '%s\n' "$out" | grep -Eo '0x[0-9a-fA-F]{40}' | head -n1 || true)"
+  fi
+
+  if [[ -z "${bls_pubkey:-}" ]]; then
+    bls_pubkey="$(printf '%s\n' "$out" | grep -Eo '0x[0-9a-fA-F]{96,}' | head -n1 || true)"
+  fi
+
+  if [[ -z "${node_id:-}" || -z "${ecdsa_address:-}" || -z "${bls_pubkey:-}" ]]; then
+    echo "ERROR: Could not derive validator tuple from secrets output in $node_dir:" >&2
     echo "$out" >&2
     return 1
   fi
 
-  printf '%s\n' "$node_id"
+  printf '/ip4/127.0.0.1/tcp/%s/p2p/%s:%s:%s\n' "$p2p_port" "$node_id" "$ecdsa_address" "$bls_pubkey"
 }
 
 build_genesis() {
@@ -164,22 +176,26 @@ build_genesis() {
     ln -sfn "$NET_DIR/node$i" "$validators_root/test-chain-$i"
   done
 
-  log "Debug: validator directory layout under $validators_root/test-chain-1 (maxdepth=3)"
-  find "$validators_root/test-chain-1" -maxdepth 3 -print
+  log "Debug: validator directory layout under $validators_root/test-chain-1 (maxdepth=4, following symlinks)"
+  find -L "$validators_root/test-chain-1" -maxdepth 4 -type f -print
 
-  local node1_dir="$NET_DIR/node1"
-  local node1_p2p_port="${NODE1_P2P_PORT:-${P2P_PORTS[0]:-1478}}"
-  local node1_node_id
-  node1_node_id="$(derive_node_id "$EDGE_BIN" "$node1_dir")"
-  NODE1_MULTIADDR="/ip4/127.0.0.1/tcp/${node1_p2p_port}/p2p/${node1_node_id}"
+  local v1 v2 v3 v4
+  v1="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node1" "${P2P_PORTS[0]}")"
+  v2="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node2" "${P2P_PORTS[1]}")"
+  v3="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node3" "${P2P_PORTS[2]}")"
+  v4="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node4" "${P2P_PORTS[3]}")"
+
+  NODE1_MULTIADDR="${v1%%:*}"
   log "[p2p] NODE1_MULTIADDR=${NODE1_MULTIADDR}"
 
   local args=(
     genesis
     --consensus ibft
     --ibft-validator-type bls
-    --validators-path "$validators_root"
-    --validators-prefix "test-chain-"
+    --validators "$v1"
+    --validators "$v2"
+    --validators "$v3"
+    --validators "$v4"
     --chain-id "$CHAIN_ID"
     --name "qikchain-ibft4-devnet"
     --block-gas-limit "$BLOCK_GAS_LIMIT"
@@ -188,7 +204,7 @@ build_genesis() {
     --bootnode "$NODE1_MULTIADDR"
   )
 
-  log "Validators path: $validators_root (prefix=test-chain-)"
+  log "Validators provided explicitly via --validators"
 
   "$EDGE_BIN" "${args[@]}"
 
@@ -209,7 +225,7 @@ build_genesis() {
     exit 1
   fi
 
-  log "Genesis built using --validators-path/--validators-prefix with IBFT BLS validators"
+  log "Genesis built using explicit --validators tuples with IBFT BLS validators"
 }
 
 normalize_forks_for_polygon_edge() {
