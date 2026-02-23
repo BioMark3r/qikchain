@@ -131,7 +131,6 @@ init_secrets_if_needed() {
 derive_validator_from_secrets() {
   local edge="$1"
   local node_dir="$2"
-  local p2p_port="$3"
 
   local out node_id ecdsa_address bls_pubkey
   out="$("$edge" secrets output --data-dir "$node_dir")"
@@ -158,7 +157,7 @@ derive_validator_from_secrets() {
     return 1
   fi
 
-  printf '/ip4/127.0.0.1/tcp/%s/p2p/%s:%s:%s\n' "$p2p_port" "$node_id" "$ecdsa_address" "$bls_pubkey"
+  printf '%s:%s:%s\n' "$node_id" "$ecdsa_address" "$bls_pubkey"
 }
 
 build_genesis() {
@@ -179,23 +178,28 @@ build_genesis() {
   log "Debug: validator directory layout under $VALIDATORS_ROOT/test-chain-1 (maxdepth=4, following symlinks)"
   find -L "$VALIDATORS_ROOT/test-chain-1" -maxdepth 4 -type f -print
 
-  local v1 v2 v3 v4
-  v1="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node1" "${P2P_PORTS[0]}")"
-  v2="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node2" "${P2P_PORTS[1]}")"
-  v3="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node3" "${P2P_PORTS[2]}")"
-  v4="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node4" "${P2P_PORTS[3]}")"
+  local validators=()
+  local first_node_id=""
+  local i
+  for i in 1 2 3 4; do
+    local tuple node_id addr bls
+    tuple="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node$i")"
+    IFS=':' read -r node_id addr bls <<<"$tuple"
 
-  NODE1_MULTIADDR="${v1%%:*}"
+    if [[ -z "$first_node_id" ]]; then
+      first_node_id="$node_id"
+    fi
+
+    validators+=( "${addr}:${bls}" )
+  done
+
+  NODE1_MULTIADDR="/ip4/127.0.0.1/tcp/${P2P_PORTS[0]}/p2p/${first_node_id}"
   log "[p2p] NODE1_MULTIADDR=${NODE1_MULTIADDR}"
 
   local args=(
     genesis
     --consensus ibft
     --ibft-validator-type bls
-    --validators "$v1"
-    --validators "$v2"
-    --validators "$v3"
-    --validators "$v4"
     --chain-id "$CHAIN_ID"
     --name "qikchain-ibft4-devnet"
     --block-gas-limit "$BLOCK_GAS_LIMIT"
@@ -203,6 +207,11 @@ build_genesis() {
     --dir "$GENESIS_OUT"
     --bootnode "$NODE1_MULTIADDR"
   )
+
+  local v
+  for v in "${validators[@]}"; do
+    args+=( --validators "$v" )
+  done
 
   log "Validators provided explicitly via --validators"
 
