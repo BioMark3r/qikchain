@@ -169,15 +169,15 @@ build_genesis() {
   log "Building Polygon Edge IBFT genesis (chainId=$CHAIN_ID blockTime=2s)"
   log "Genesis output: $GENESIS_OUT"
 
-  local validators_root="$NET_DIR/validators"
-  rm -rf "$validators_root"
-  mkdir -p "$validators_root"
+  local VALIDATORS_ROOT="$NET_DIR/validators"
+  rm -rf "$VALIDATORS_ROOT"
+  mkdir -p "$VALIDATORS_ROOT"
   for i in 1 2 3 4; do
-    ln -sfn "$NET_DIR/node$i" "$validators_root/test-chain-$i"
+    ln -sfn "$NET_DIR/node$i" "$VALIDATORS_ROOT/test-chain-$i"
   done
 
-  log "Debug: validator directory layout under $validators_root/test-chain-1 (maxdepth=4, following symlinks)"
-  find -L "$validators_root/test-chain-1" -maxdepth 4 -type f -print
+  log "Debug: validator directory layout under $VALIDATORS_ROOT/test-chain-1 (maxdepth=4, following symlinks)"
+  find -L "$VALIDATORS_ROOT/test-chain-1" -maxdepth 4 -type f -print
 
   local v1 v2 v3 v4
   v1="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node1" "${P2P_PORTS[0]}")"
