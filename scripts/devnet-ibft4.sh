@@ -128,38 +128,6 @@ init_secrets_if_needed() {
   done
 }
 
-derive_validator_from_secrets() {
-  local edge="$1"
-  local node_dir="$2"
-
-  local out node_id ecdsa_address bls_pubkey
-  out="$("$edge" secrets output --data-dir "$node_dir")"
-
-  node_id="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*Node ID[[:space:]]*[:=][[:space:]]*([^[:space:]]+).*/\1/p' | head -n1)"
-  ecdsa_address="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*Public key \(address\)[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | head -n1)"
-  bls_pubkey="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*BLS Public key[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | head -n1)"
-
-  if [[ -z "${node_id:-}" ]]; then
-    node_id="$(printf '%s\n' "$out" | grep -Eo '16Uiu2H[0-9A-Za-z]+' | head -n1 || true)"
-  fi
-
-  if [[ -z "${ecdsa_address:-}" ]]; then
-    ecdsa_address="$(printf '%s\n' "$out" | grep -Eo '0x[0-9a-fA-F]{40}' | head -n1 || true)"
-  fi
-
-  if [[ -z "${bls_pubkey:-}" ]]; then
-    bls_pubkey="$(printf '%s\n' "$out" | grep -Eo '0x[0-9a-fA-F]{96,}' | head -n1 || true)"
-  fi
-
-  if [[ -z "${node_id:-}" || -z "${ecdsa_address:-}" || -z "${bls_pubkey:-}" ]]; then
-    echo "ERROR: Could not derive validator tuple from secrets output in $node_dir:" >&2
-    echo "$out" >&2
-    return 1
-  fi
-
-  printf '%s:%s:%s\n' "$node_id" "$ecdsa_address" "$bls_pubkey"
-}
-
 build_genesis() {
   if [[ "$CONSENSUS" != "poa" && "$CONSENSUS" != "ibft" ]]; then
     log "WARNING: CONSENSUS=$CONSENSUS requested, but Phase 0 devnet genesis is forced to polygon-edge IBFT."
@@ -182,15 +150,32 @@ build_genesis() {
   local first_node_id=""
   local i
   for i in 1 2 3 4; do
-    local tuple node_id addr bls
-    tuple="$(derive_validator_from_secrets "$EDGE_BIN" "$NET_DIR/node$i")"
-    IFS=':' read -r node_id addr bls <<<"$tuple"
+    local out node_id addr bls validator_entry
+    out="$("$EDGE_BIN" secrets output --data-dir "$NET_DIR/node$i")"
+
+    node_id="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*Node ID[[:space:]]*[:=][[:space:]]*([^[:space:]]+).*/\1/p' | head -n1 | tr -d '\r\n')"
+    addr="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*Public key \(address\)[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]{40}).*/\1/p' | head -n1 | tr -d '\r\n')"
+    bls="$(printf '%s\n' "$out" | sed -nE 's/^[[:space:]]*BLS Public key[[:space:]]*[:=][[:space:]]*(0x[0-9a-fA-F]+).*/\1/p' | head -n1 | tr -d '\r\n')"
+
+    if [[ -z "$node_id" ]]; then
+      node_id="$(printf '%s\n' "$out" | grep -Eo '16Uiu2H[0-9A-Za-z]+' | head -n1 | tr -d '\r\n' || true)"
+    fi
+
+    validator_entry="${addr}:${bls}"
+    if [[ ! "$validator_entry" =~ ^0x[0-9a-fA-F]{40}:0x[0-9a-fA-F]+$ ]]; then
+      echo "ERROR: invalid validator format for node$i" >&2
+      echo "Parsed addr: ${addr:-<empty>}" >&2
+      echo "Parsed bls:  ${bls:-<empty>}" >&2
+      echo "Full secrets output:" >&2
+      echo "$out" >&2
+      exit 1
+    fi
 
     if [[ -z "$first_node_id" ]]; then
       first_node_id="$node_id"
     fi
 
-    validators+=( "${addr}:${bls}" )
+    validators+=( "$validator_entry" )
   done
 
   NODE1_MULTIADDR="/ip4/127.0.0.1/tcp/${P2P_PORTS[0]}/p2p/${first_node_id}"
