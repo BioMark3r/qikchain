@@ -159,11 +159,10 @@ build_genesis() {
 
   local validators_root="$NET_DIR/validators"
   rm -rf "$validators_root"
-  mkdir -p "$validators_root"
-  ln -sfn "$NET_DIR/node1" "$validators_root/test-chain-1"
-  ln -sfn "$NET_DIR/node2" "$validators_root/test-chain-2"
-  ln -sfn "$NET_DIR/node3" "$validators_root/test-chain-3"
-  ln -sfn "$NET_DIR/node4" "$validators_root/test-chain-4"
+  for i in 1 2 3 4; do
+    mkdir -p "$validators_root/test-chain-$i"
+    ln -sfn "$NET_DIR/node$i/secrets" "$validators_root/test-chain-$i/secrets"
+  done
 
   local node1_dir="$NET_DIR/node1"
   local node1_p2p_port="${NODE1_P2P_PORT:-${P2P_PORTS[0]:-1478}}"
@@ -176,19 +175,36 @@ build_genesis() {
     genesis
     --consensus ibft
     --ibft-validator-type bls
+    --validators-path "$validators_root"
+    --validators-prefix "test-chain-"
     --chain-id "$CHAIN_ID"
-    --name "$CHAIN_NAME"
+    --name "qikchain-ibft4-devnet"
     --block-gas-limit "$BLOCK_GAS_LIMIT"
     --block-time 2s
     --dir "$GENESIS_OUT"
-    --validators-path "$validators_root"
-    --validators-prefix "test-chain-"
     --bootnode "$NODE1_MULTIADDR"
   )
 
   log "Validators path: $validators_root (prefix=test-chain-)"
 
   "$EDGE_BIN" "${args[@]}"
+
+  local extra_data_hex
+  extra_data_hex="$(jq -r '.genesis.extraData // empty' "$GENESIS_OUT" 2>/dev/null || true)"
+  if [[ -z "$extra_data_hex" || "$extra_data_hex" == "null" ]]; then
+    echo "ERROR: Could not read genesis.extraData from $GENESIS_OUT" >&2
+    exit 1
+  fi
+
+  local extra_data_len=0
+  if [[ "$extra_data_hex" == 0x* ]]; then
+    extra_data_len=$(((${#extra_data_hex} - 2) / 2))
+  fi
+
+  if (( extra_data_len <= 40 )); then
+    echo "ERROR: genesis.extraData is too small (${extra_data_len} bytes). Likely missing validator set in extraData" >&2
+    exit 1
+  fi
 
   log "Genesis built using --validators-path/--validators-prefix with IBFT BLS validators"
 }
