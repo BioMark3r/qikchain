@@ -1,9 +1,9 @@
 package edge
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -30,7 +30,7 @@ func DesiredForks() []string {
 func DetectSupportedForks(repoRoot string) ([]string, string) {
 	srcRoot := filepath.Join(repoRoot, "third_party", "polygon-edge")
 	if st, err := os.Stat(srcRoot); err == nil && st.IsDir() {
-		if forks := detectFromPath(srcRoot); len(forks) > 0 {
+		if forks := detectFromChainPackage(srcRoot); len(forks) > 0 {
 			return forks, srcRoot
 		}
 	}
@@ -42,7 +42,7 @@ func DetectSupportedForks(repoRoot string) ([]string, string) {
 		}
 	}
 
-	fallback := []string{"homestead", "byzantium", "constantinople", "petersburg", "istanbul"}
+	fallback := []string{"homestead", "byzantium", "constantinople", "petersburg", "istanbul", "london", "eip150", "eip155", "eip158"}
 	return fallback, "fallback"
 }
 
@@ -60,8 +60,42 @@ func FilterSupportedForks(desired, supported []string) []string {
 	return out
 }
 
-func detectFromPath(root string) []string {
-	present := map[string]bool{}
+func detectFromChainPackage(root string) []string {
+	chainDir := filepath.Join(root, "chain")
+	entries, err := os.ReadDir(chainDir)
+	if err != nil {
+		return nil
+	}
+	q := regexp.MustCompile(`"([A-Za-z0-9]+)"`)
+	forks := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(chainDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		s := string(b)
+		if !(strings.Contains(s, "Fork") || strings.Contains(s, "fork")) {
+			continue
+		}
+		for _, m := range q.FindAllStringSubmatch(s, -1) {
+			candidate := m[1]
+			if looksLikeFork(candidate) {
+				forks[candidate] = true
+			}
+		}
+	}
+	out := sortedForks(forks)
+	if len(out) == 0 {
+		return filterCandidatesBySource(root, desiredForks)
+	}
+	return out
+}
+
+func filterCandidatesBySource(root string, candidates []string) []string {
+	out := map[string]bool{}
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return nil
@@ -71,14 +105,23 @@ func detectFromPath(root string) []string {
 			return nil
 		}
 		s := string(b)
-		for _, fork := range desiredForks {
-			if strings.Contains(s, fmt.Sprintf("\"%s\"", fork)) {
-				present[fork] = true
+		for _, fork := range candidates {
+			if strings.Contains(s, "\""+fork+"\"") {
+				out[fork] = true
 			}
 		}
 		return nil
 	})
-	return sortedForks(present)
+	return sortedForks(out)
+}
+
+func looksLikeFork(s string) bool {
+	switch s {
+	case "homestead", "byzantium", "constantinople", "petersburg", "istanbul", "london", "eip150", "eip155", "eip158", "quorumCalcAlignment", "txHashWithType", "londonFix":
+		return true
+	default:
+		return false
+	}
 }
 
 func detectFromBinary(path string) []string {

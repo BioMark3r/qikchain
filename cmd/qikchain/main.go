@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/BioMark3r/qikchain/internal/chainmeta"
 	"github.com/BioMark3r/qikchain/internal/config"
 	"github.com/BioMark3r/qikchain/internal/edge"
+	"github.com/BioMark3r/qikchain/internal/edgecaps"
 	"github.com/BioMark3r/qikchain/internal/genesis"
 )
 
@@ -68,12 +71,13 @@ Usage:
   qikchain genesis validate --chain build/genesis.json [--genesis build/genesis-eth.json]
   qikchain genesis print --file build/chain.json [--json]
   qikchain edge forks
+  qikchain edge caps [--edge-bin ./bin/polygon-edge --json --pretty --timeout 3s]
 `)
 }
 
 func cmdEdge(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "edge: expected subcommand (forks)")
+		fmt.Fprintln(os.Stderr, "edge: expected subcommand (forks|caps)")
 		return 2
 	}
 	switch args[0] {
@@ -88,9 +92,76 @@ func cmdEdge(args []string) int {
 			fmt.Println(key)
 		}
 		return 0
+	case "caps":
+		return cmdEdgeCaps(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "edge: unknown subcommand %q\n", args[0])
 		return 2
+	}
+}
+
+func cmdEdgeCaps(args []string) int {
+	fs := flag.NewFlagSet("edge caps", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	edgeBin := fs.String("edge-bin", "./bin/polygon-edge", "path to polygon-edge binary")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
+	pretty := fs.Bool("pretty", false, "pretty-print JSON output")
+	timeout := fs.Duration("timeout", 3*time.Second, "timeout for external command execution")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	report, err := edgecaps.Collect(context.Background(), *edgeBin, *timeout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "edge caps: unable to inspect edge binary %q: %v\n", *edgeBin, err)
+		return 1
+	}
+
+	if *jsonOut {
+		if *pretty {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(report); err != nil {
+				fmt.Fprintln(os.Stderr, "edge caps:", err)
+				return 1
+			}
+			return 0
+		}
+		b, err := json.Marshal(report)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "edge caps:", err)
+			return 1
+		}
+		fmt.Println(string(b))
+		return 0
+	}
+
+	fmt.Println("Edge identity")
+	fmt.Printf("  path: %s\n", report.EdgeBin)
+	if report.EdgeVersion != "" {
+		fmt.Printf("  version: %s\n", report.EdgeVersion)
+	}
+	if report.EdgeSHA256 != "" {
+		fmt.Printf("  sha256: %s\n", report.EdgeSHA256)
+	}
+	printBoolMap("Server flags", report.ServerFlags)
+	printBoolMap("Genesis flags", report.GenesisFlags)
+	fmt.Println("Forks")
+	for _, fork := range report.SupportedForks {
+		fmt.Printf("  - %s\n", fork)
+	}
+	return 0
+}
+
+func printBoolMap(title string, values map[string]bool) {
+	fmt.Println(title)
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Printf("  %s: %t\n", k, values[k])
 	}
 }
 

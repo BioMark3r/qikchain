@@ -123,6 +123,30 @@ Verify binaries:
 
 ---
 
+## Edge capability detection
+
+Use `qikchain edge caps` to detect Polygon Edge CLI capabilities for scripts and genesis builders.
+
+Human-readable report:
+
+```bash
+./bin/qikchain edge caps
+```
+
+Machine-readable JSON:
+
+```bash
+./bin/qikchain edge caps --json
+./bin/qikchain edge caps --json --pretty
+```
+
+Optional flags:
+
+- `--edge-bin` path to the edge binary (default `./bin/polygon-edge`)
+- `--timeout` command timeout for external edge calls (default `3s`)
+
+---
+
 ## Genesis Pipeline
 
 ### Allocations
