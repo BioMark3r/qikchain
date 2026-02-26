@@ -214,7 +214,7 @@ INSECURE_SECRETS=1 RESET=1 CONSENSUS=poa ./scripts/devnet-ibft4.sh
 Use the containerized devnet when you want a reproducible 4-node network with persistent named volumes:
 
 ```bash
-docker compose -f docker-compose.devnet.yml up --build
+docker compose up --build
 ```
 
 RPC endpoints from host:
@@ -235,7 +235,16 @@ curl -s -X POST http://localhost:8545 \
 Reset the docker devnet (removes named volumes and chain state):
 
 ```bash
-docker compose -f docker-compose.devnet.yml down -v
+docker compose down -v
+```
+
+You can also use Make targets:
+
+```bash
+make docker-devnet-up
+make docker-devnet-logs
+make docker-devnet-down        # stop containers
+make docker-devnet-down RESET=1 # stop + remove volumes
 ```
 
 ### Start PoS
@@ -349,6 +358,7 @@ bash scripts/ci/integration-devnet.sh
 Notes:
 
 - The script starts/stops devnet and writes logs to `.ci-logs/devnet.out`.
+- Set `DOCKER_DEVNET=1` to run the same integration check against `docker compose` (useful in CI).
 - The default dev CI key maps to address `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`, which is pre-funded in devnet genesis by `scripts/devnet-ibft4.sh`.
 - In GitHub Actions, set repository secret `CI_FUNDER_PRIVKEY` (Settings → Secrets and variables → Actions).
 

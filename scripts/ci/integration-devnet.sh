@@ -20,9 +20,13 @@ RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 CI_FUNDER_PRIVKEY="${CI_FUNDER_PRIVKEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 export CI_FUNDER_PRIVKEY
 
+DOCKER_DEVNET="${DOCKER_DEVNET:-0}"
 START_CMD=()
 STOP_CMD=()
-if make -qp | awk -F: '/^[[:alnum:]_.-]+:/{print $1}' | rg -x 'devnet' >/dev/null 2>&1; then
+if [[ "$DOCKER_DEVNET" == "1" ]]; then
+  START_CMD=(make docker-devnet-up)
+  STOP_CMD=(make docker-devnet-down RESET=1)
+elif make -qp | awk -F: '/^[[:alnum:]_.-]+:/{print $1}' | rg -x 'devnet' >/dev/null 2>&1; then
   START_CMD=(make devnet)
   STOP_CMD=(make down)
 elif [[ -x "$ROOT/scripts/devnet.sh" ]]; then
@@ -51,7 +55,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[integration] starting devnet: ${START_CMD[*]}" | tee -a "$DEVNET_LOG"
+echo "[integration] starting devnet (DOCKER_DEVNET=$DOCKER_DEVNET): ${START_CMD[*]}" | tee -a "$DEVNET_LOG"
 "${START_CMD[@]}" >>"$DEVNET_LOG" 2>&1 || {
   echo "ERROR: devnet failed to start" >&2
   tail -n 200 "$DEVNET_LOG" >&2 || true
