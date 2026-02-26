@@ -3,15 +3,16 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - goos: linux
@@ -23,41 +24,85 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Go 1.20
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.20.x"
+          go-version-file: go.mod
           cache: true
 
-      - name: Install build deps
+      - name: Set release metadata
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends git make ca-certificates
+          echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "COMMIT=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct \"${GITHUB_SHA}\")" >> "$GITHUB_ENV"
 
-      - name: Build (matrix)
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
+      - name: Build release artifacts
         run: |
-          # Ensure fresh clone/build
-          rm -rf third_party/polygon-edge || true
-          rm -rf bin || true
-          mkdir -p bin
+          scripts/release/build.sh "${{ matrix.goos }}/${{ matrix.goarch }}"
 
-          # Build polygon-edge from your fork
-          make edge
-
-          # Build qikchain CLI
-          make qikchain
-
-          # Rename outputs for release clarity
-          mv bin/polygon-edge "bin/polygon-edge-${GOOS}-${GOARCH}"
-          mv bin/qikchain "bin/qikchain-${GOOS}-${GOARCH}"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload matrix artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            bin/polygon-edge-${{ matrix.goos }}-${{ matrix.goarch }}
-            bin/qikchain-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/qikchain_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download built archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum qikchain_*.tar.gz > SHA256SUMS
+
+      - name: Create GitHub release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          body: |
+            Release ${{ github.ref_name }}
+
+            Commit: `${{ github.sha }}`
+          draft: false
+          prerelease: false
+
+      - name: Upload linux/amd64 archive
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist/qikchain_linux_amd64.tar.gz
+          asset_name: qikchain_linux_amd64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload linux/arm64 archive
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist/qikchain_linux_arm64.tar.gz
+          asset_name: qikchain_linux_arm64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload SHA256SUMS
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist/SHA256SUMS
+          asset_name: SHA256SUMS
+          asset_content_type: text/plain

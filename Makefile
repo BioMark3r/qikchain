@@ -42,7 +42,7 @@ endif
 .PHONY: help print-vars build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
-	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs
+	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -61,6 +61,7 @@ help:
 	@echo "  make fmt              Format Go code"
 	@echo "  make test             Run Go tests"
 	@echo "  make lint             Run go vet"
+	@echo "  make release-local    Build release tarballs + SHA256SUMS into dist/"
 	@echo ""
 	@echo "Genesis:"
 	@echo "  make genesis-poa      Build PoA genesis artifacts"
@@ -148,6 +149,10 @@ build-edge:
 		fi; \
 		echo "==> polygon-edge built: $(POLYGON_EDGE_BIN)"; \
 	'
+
+release-local:
+	@echo "==> Building local release artifacts"
+	bash ./scripts/release/build.sh
 
 clean:
 	@echo "==> Cleaning build artifacts"

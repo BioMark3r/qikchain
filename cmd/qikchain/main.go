@@ -25,6 +25,12 @@ import (
 	"github.com/BioMark3r/qikchain/internal/genesis"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
