@@ -13,6 +13,12 @@ import (
 	"github.com/BioMark3r/qikchain/internal/rpc"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 type output struct {
 	RPC         string `json:"rpc"`
 	Timestamp   string `json:"timestamp"`

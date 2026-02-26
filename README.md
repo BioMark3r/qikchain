@@ -13,6 +13,7 @@ QikChain is a Polygon Edge–based EVM chain with a custom Go CLI for determinis
 - [Architecture](#architecture)
 - [Requirements](#requirements)
 - [Build](#build)
+- [Releases](#releases)
 - [Genesis Pipeline](#genesis-pipeline)
 - [Devnet: IBFT 4-node](#devnet-ibft-4-node)
 - [Metrics](#metrics)
@@ -120,6 +121,47 @@ Verify binaries:
 ./bin/qikchain --help
 ./bin/polygon-edge version || true
 ```
+
+---
+
+
+## Releases
+
+Artifacts are published automatically to GitHub Releases when you push a semantic version tag (`vX.Y.Z`).
+
+Cut a release:
+
+```bash
+git tag vX.Y.Z
+git push --tags
+```
+
+The release workflow builds deterministic-leaning archives for:
+
+- `linux/amd64`
+- `linux/arm64`
+
+Each archive is uploaded as `qikchain_<os>_<arch>.tar.gz` and a `SHA256SUMS` file is attached to the release.
+
+Artifacts are created under `dist/` in CI and for local builds. To produce the same output locally:
+
+```bash
+make release-local
+```
+
+Verify checksums after downloading release assets:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+Reproducible build settings used by release builds:
+
+- `-trimpath`
+- `-buildvcs=false`
+- `-ldflags` with `main.version`, `main.commit`, and `main.date`
+
+`main.date` is derived from the tagged commit timestamp (`SOURCE_DATE_EPOCH` in CI) for stable metadata across reruns of the same commit.
 
 ---
 
