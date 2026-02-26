@@ -17,6 +17,7 @@ QikChain is a Polygon Edge–based EVM chain with a custom Go CLI for determinis
 - [Genesis Pipeline](#genesis-pipeline)
 - [Devnet: IBFT 4-node](#devnet-ibft-4-node)
 - [Metrics](#metrics)
+- [Network Status UI](#network-status-ui)
 - [CI / Health Checks](#ci--health-checks)
 - [Troubleshooting](#troubleshooting)
 - [Repo Layout](#repo-layout)
@@ -348,6 +349,28 @@ JSON=1 LOGS=1 LOG_LINES=40 ./scripts/devnet-ibft4-status.sh | jq .
 ```
 
 ---
+
+## Network Status UI
+
+The repository includes a tiny read-only status dashboard backed by the existing `qikchain` CLI.
+
+Start devnet and the UI:
+
+```bash
+make up
+make status-ui
+```
+
+Then open:
+
+```
+http://127.0.0.1:8787
+```
+
+Environment overrides:
+
+- `RPC_URL` (default: `http://127.0.0.1:8545`)
+- `PORT` (default: `8787`)
 
 ## Metrics
 

@@ -39,10 +39,12 @@ ifneq ($(words $(filter /mnt/%,$(ROOT))),1)
 $(error ROOT appears malformed (multiple absolute paths detected): [$(ROOT)])
 endif
 
+
 .PHONY: help print-vars build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
-	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local
+	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
+	status-ui up-with-ui
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -81,6 +83,8 @@ help:
 	@echo "  make docker-devnet-up   Start Docker devnet via docker compose"
 	@echo "  make docker-devnet-down Stop Docker devnet (set RESET=1 to remove volumes)"
 	@echo "  make docker-devnet-logs Follow Docker devnet logs"
+	@echo "  make status-ui        Install and run the status UI (http://127.0.0.1:8787)"
+	@echo "  make up-with-ui       Start devnet in background, then run status UI"
 	@echo ""
 	@echo "Convenience:"
 	@echo "  make reset            down + wipe data + up"
@@ -258,6 +262,16 @@ status-json:
 logs:
 	@echo "==> Recent devnet logs"
 	LOGS=1 bash "$(DEVNET_STATUS_SCRIPT)"
+
+status-ui:
+	@echo "==> Starting status UI"
+	cd apps/status-ui && npm install && node server.js
+
+up-with-ui:
+	@echo "==> Starting devnet in background"
+	@$(MAKE) up >/tmp/qikchain-up.log 2>&1 &
+	@echo "==> Devnet logs: /tmp/qikchain-up.log"
+	@$(MAKE) status-ui
 
 logs-follow:
 	@echo "==> Following devnet logs"
