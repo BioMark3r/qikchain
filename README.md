@@ -334,6 +334,24 @@ What it validates:
 4) Prints diagnostics on failure (status JSON, node1 log tail, listener ports)
 5) Always stops devnet on exit (success or failure)
 
+### Transaction integration smoke (local + CI)
+
+This repo includes a CI-grade integration script that proves the devnet is live by sending a real EIP-1559 transfer and asserting `receipt.status == 1`.
+
+Run locally:
+
+```bash
+export CI_FUNDER_PRIVKEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+export RPC_URL=http://127.0.0.1:8545
+bash scripts/ci/integration-devnet.sh
+```
+
+Notes:
+
+- The script starts/stops devnet and writes logs to `.ci-logs/devnet.out`.
+- The default dev CI key maps to address `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`, which is pre-funded in devnet genesis by `scripts/devnet-ibft4.sh`.
+- In GitHub Actions, set repository secret `CI_FUNDER_PRIVKEY` (Settings → Secrets and variables → Actions).
+
 ---
 
 ## Troubleshooting
