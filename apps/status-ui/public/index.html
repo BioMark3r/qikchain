@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QikChain Network Status</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 680px;
+        margin: 40px auto;
+        padding: 0 12px;
+      }
+      .card {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        margin: 10px 0;
+      }
+      .badge {
+        color: #fff;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.9rem;
+      }
+      .healthy {
+        background: #1c9b4a;
+      }
+      .degraded {
+        background: #b63a3a;
+      }
+      .error {
+        color: #b63a3a;
+        margin-top: 12px;
+      }
+      code {
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>QikChain Network Status</h1>
+    <div class="card">
+      <div class="row"><strong>RPC URL</strong><code id="rpc">-</code></div>
+      <div class="row"><strong>Network</strong><span id="networkBadge" class="badge degraded">Loading</span></div>
+      <div class="row"><strong>Block #</strong><span id="blockHead">-</span></div>
+      <div class="row"><strong>Chain ID</strong><span id="chainId">-</span></div>
+      <div class="row"><strong>Peers</strong><span id="peerCount">-</span></div>
+      <div id="error" class="error"></div>
+    </div>
+
+    <script>
+      const rpc = document.getElementById('rpc');
+      const networkBadge = document.getElementById('networkBadge');
+      const blockHead = document.getElementById('blockHead');
+      const chainId = document.getElementById('chainId');
+      const peerCount = document.getElementById('peerCount');
+      const error = document.getElementById('error');
+
+      function setBadge(isHealthy) {
+        networkBadge.textContent = isHealthy ? 'Healthy' : 'Degraded';
+        networkBadge.className = `badge ${isHealthy ? 'healthy' : 'degraded'}`;
+      }
+
+      async function refreshStatus() {
+        try {
+          const response = await fetch('/api/status');
+          const data = await response.json();
+
+          rpc.textContent = data.rpc || '-';
+          blockHead.textContent = data.blockHead ?? '-';
+          chainId.textContent = data.chainId ?? '-';
+          peerCount.textContent = data.peerCount ?? '-';
+          setBadge(Boolean(data.sealingHealthy));
+
+          error.textContent = data.error ? `Error: ${data.error}` : '';
+        } catch (err) {
+          setBadge(false);
+          error.textContent = `Error: ${err.message}`;
+        }
+      }
+
+      refreshStatus();
+      setInterval(refreshStatus, 2000);
+    </script>
+  </body>
+</html>
