@@ -55,6 +55,8 @@ METADATA_OUT="${METADATA_OUT:-$ROOT/build/chain-metadata.json}"
 ALLOCATIONS_FILE="${ALLOCATIONS_FILE:-$ROOT/config/allocations/devnet.json}"
 TOKEN_FILE="${TOKEN_FILE:-$ROOT/config/token.json}"
 POS_DEPLOYMENTS="${POS_DEPLOYMENTS:-$ROOT/build/deployments/pos.local.json}"
+CI_FUNDER_ADDRESS="${CI_FUNDER_ADDRESS:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}"
+CI_FUNDER_BALANCE_WEI_HEX="${CI_FUNDER_BALANCE_WEI_HEX:-0x3635c9adc5dea00000}"
 
 # Ports (node i => ports[i])
 RPC_PORTS=(8545 8546 8547 8548)
@@ -191,6 +193,7 @@ build_genesis() {
     --block-time 2s
     --dir "$GENESIS_OUT"
     --bootnode "$NODE1_MULTIADDR"
+    --premine "${CI_FUNDER_ADDRESS}:${CI_FUNDER_BALANCE_WEI_HEX}"
   )
 
   local v

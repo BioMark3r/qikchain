@@ -38,7 +38,8 @@ jobs:
             make \
             ca-certificates \
             build-essential \
-            file
+            file \
+            jq
           sudo rm -rf /var/lib/apt/lists/*
 
       - name: Tool versions
@@ -81,6 +82,15 @@ jobs:
           test -x bin/polygon-edge
           ls -la bin/
           file bin/qikchain bin/polygon-edge
+
+
+      - name: Devnet transaction integration smoke
+        env:
+          CI_FUNDER_PRIVKEY: ${{ secrets.CI_FUNDER_PRIVKEY }}
+          RPC_URL: http://127.0.0.1:8545
+        run: |
+          set -euo pipefail
+          bash scripts/ci/integration-devnet.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
