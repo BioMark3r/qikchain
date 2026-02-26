@@ -42,7 +42,7 @@ endif
 .PHONY: help print-vars build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
-	reset reset-poa reset-pos doctor
+	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -77,6 +77,9 @@ help:
 	@echo "  make status-json      JSON status (pretty-printed with jq when installed)"
 	@echo "  make logs             Tail recent logs (LOGS=1)"
 	@echo "  make logs-follow      Stream logs (LOGS=1 FOLLOW=1)"
+	@echo "  make docker-devnet-up   Start Docker devnet via docker compose"
+	@echo "  make docker-devnet-down Stop Docker devnet (set RESET=1 to remove volumes)"
+	@echo "  make docker-devnet-logs Follow Docker devnet logs"
 	@echo ""
 	@echo "Convenience:"
 	@echo "  make reset            down + wipe data + up"
@@ -211,6 +214,22 @@ up-pos:
 down:
 	@echo "==> Stopping devnet"
 	bash "$(DEVNET_DOWN_SCRIPT)"
+
+docker-devnet-up:
+	@echo "==> Starting Docker devnet"
+	docker compose up --build -d
+
+docker-devnet-down:
+	@echo "==> Stopping Docker devnet"
+	@if [ "$(RESET)" = "1" ]; then \
+		docker compose down -v; \
+	else \
+		docker compose down; \
+	fi
+
+docker-devnet-logs:
+	@echo "==> Following Docker devnet logs"
+	docker compose logs -f
 
 status:
 	@echo "==> Devnet status"

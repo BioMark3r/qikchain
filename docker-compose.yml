@@ -1,10 +1,136 @@
 services:
-  build:
-    image: qikchain-build:go120
+  node1:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/devnet/Dockerfile
+    image: qikchain-devnet:local
+    container_name: qikchain-node1
+    environment:
+      NODE_NAME: node1
+      NODE_DATA_DIR: /data/node1
+      RPC_PORT: "8545"
+      GRPC_PORT: "9632"
+      P2P_PORT: "1478"
+      METRICS_PORT: "9090"
+      VALIDATOR_COUNT: "4"
+      CONSENSUS: ${CONSENSUS:-poa}
+      CHAIN_ID: ${CHAIN_ID:-100}
+      SHARED_DIR: /shared
+      HEALTHCHECK_RPC_URL: http://127.0.0.1:8545
     volumes:
-      - ./:/src
-    working_dir: /src
-    command: bash -lc "make clean && make all"
+      - devnet_shared:/shared
+      - node1_data:/data/node1
+    ports:
+      - "8545:8545"
+      - "9632:9632"
+      - "1478:1478"
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/devnet-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  node2:
+    image: qikchain-devnet:local
+    container_name: qikchain-node2
+    depends_on:
+      node1:
+        condition: service_started
+    environment:
+      NODE_NAME: node2
+      NODE_DATA_DIR: /data/node2
+      RPC_PORT: "8546"
+      GRPC_PORT: "9633"
+      P2P_PORT: "1479"
+      METRICS_PORT: "9091"
+      VALIDATOR_COUNT: "4"
+      CHAIN_ID: ${CHAIN_ID:-100}
+      SHARED_DIR: /shared
+      HEALTHCHECK_RPC_URL: http://127.0.0.1:8546
+    volumes:
+      - devnet_shared:/shared
+      - node2_data:/data/node2
+    ports:
+      - "8546:8546"
+      - "9633:9633"
+      - "1479:1479"
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/devnet-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  node3:
+    image: qikchain-devnet:local
+    container_name: qikchain-node3
+    depends_on:
+      node1:
+        condition: service_started
+    environment:
+      NODE_NAME: node3
+      NODE_DATA_DIR: /data/node3
+      RPC_PORT: "8547"
+      GRPC_PORT: "9634"
+      P2P_PORT: "1480"
+      METRICS_PORT: "9092"
+      VALIDATOR_COUNT: "4"
+      CHAIN_ID: ${CHAIN_ID:-100}
+      SHARED_DIR: /shared
+      HEALTHCHECK_RPC_URL: http://127.0.0.1:8547
+    volumes:
+      - devnet_shared:/shared
+      - node3_data:/data/node3
+    ports:
+      - "8547:8547"
+      - "9634:9634"
+      - "1480:1480"
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/devnet-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  node4:
+    image: qikchain-devnet:local
+    container_name: qikchain-node4
+    depends_on:
+      node1:
+        condition: service_started
+    environment:
+      NODE_NAME: node4
+      NODE_DATA_DIR: /data/node4
+      RPC_PORT: "8548"
+      GRPC_PORT: "9635"
+      P2P_PORT: "1481"
+      METRICS_PORT: "9093"
+      VALIDATOR_COUNT: "4"
+      CHAIN_ID: ${CHAIN_ID:-100}
+      SHARED_DIR: /shared
+      HEALTHCHECK_RPC_URL: http://127.0.0.1:8548
+    volumes:
+      - devnet_shared:/shared
+      - node4_data:/data/node4
+    ports:
+      - "8548:8548"
+      - "9635:9635"
+      - "1481:1481"
+      - "9093:9093"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/devnet-healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  devnet_shared:
+  node1_data:
+  node2_data:
+  node3_data:
+  node4_data:
