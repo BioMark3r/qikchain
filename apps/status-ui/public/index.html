@@ -3,89 +3,164 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QikChain Network Status</title>
+    <title>QikChain Devnet Status</title>
     <style>
-      body {
+      :root {
         font-family: Arial, sans-serif;
-        max-width: 680px;
-        margin: 40px auto;
-        padding: 0 12px;
       }
-      .card {
-        border: 1px solid #ddd;
+      body {
+        margin: 24px;
+        background: #f5f7fb;
+        color: #17202a;
+      }
+      .panel {
+        background: #fff;
+        border: 1px solid #e0e6ef;
         border-radius: 10px;
         padding: 16px;
-      }
-      .row {
-        display: flex;
-        justify-content: space-between;
-        margin: 10px 0;
+        margin-bottom: 16px;
       }
       .badge {
-        color: #fff;
+        display: inline-block;
         border-radius: 999px;
+        color: #fff;
+        font-size: 12px;
         padding: 4px 10px;
-        font-size: 0.9rem;
       }
       .healthy {
-        background: #1c9b4a;
+        background: #198754;
       }
       .degraded {
-        background: #b63a3a;
+        background: #dc3545;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+      }
+      .stat {
+        background: #f8fafc;
+        border: 1px solid #e5eaf1;
+        border-radius: 8px;
+        padding: 8px;
+      }
+      .node-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 10px;
+      }
+      .node-card {
+        background: #fff;
+        border: 1px solid #dde3ec;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .node-card.down {
+        border-color: #f3b8c0;
+      }
+      .node-title {
+        font-size: 13px;
+        word-break: break-all;
+        margin-bottom: 8px;
+      }
+      .kv {
+        font-size: 13px;
+        margin: 2px 0;
       }
       .error {
-        color: #b63a3a;
-        margin-top: 12px;
+        margin-top: 8px;
+        color: #b42332;
+        font-size: 12px;
       }
-      code {
-        word-break: break-all;
+      .muted {
+        color: #6b7280;
+        font-size: 12px;
       }
     </style>
   </head>
   <body>
-    <h1>QikChain Network Status</h1>
-    <div class="card">
-      <div class="row"><strong>RPC URL</strong><code id="rpc">-</code></div>
-      <div class="row"><strong>Network</strong><span id="networkBadge" class="badge degraded">Loading</span></div>
-      <div class="row"><strong>Block #</strong><span id="blockHead">-</span></div>
-      <div class="row"><strong>Chain ID</strong><span id="chainId">-</span></div>
-      <div class="row"><strong>Peers</strong><span id="peerCount">-</span></div>
-      <div id="error" class="error"></div>
+    <h1>QikChain Devnet Status</h1>
+
+    <div class="panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div>
+          <strong>Overall:</strong>
+          <span id="overallBadge" class="badge degraded">Loading</span>
+        </div>
+        <div class="muted" id="timestamp">-</div>
+      </div>
+      <div class="muted" id="overallReason">-</div>
     </div>
 
-    <script>
-      const rpc = document.getElementById('rpc');
-      const networkBadge = document.getElementById('networkBadge');
-      const blockHead = document.getElementById('blockHead');
-      const chainId = document.getElementById('chainId');
-      const peerCount = document.getElementById('peerCount');
-      const error = document.getElementById('error');
+    <div class="panel summary" id="summary"></div>
 
-      function setBadge(isHealthy) {
-        networkBadge.textContent = isHealthy ? 'Healthy' : 'Degraded';
-        networkBadge.className = `badge ${isHealthy ? 'healthy' : 'degraded'}`;
+    <div class="node-grid" id="nodeGrid"></div>
+
+    <script>
+      const overallBadge = document.getElementById('overallBadge');
+      const overallReason = document.getElementById('overallReason');
+      const timestamp = document.getElementById('timestamp');
+      const summary = document.getElementById('summary');
+      const nodeGrid = document.getElementById('nodeGrid');
+
+      function setOverall(healthy) {
+        overallBadge.textContent = healthy ? 'Healthy' : 'Degraded';
+        overallBadge.className = `badge ${healthy ? 'healthy' : 'degraded'}`;
       }
 
-      async function refreshStatus() {
+      function renderSummary(data) {
+        const items = [
+          ['Nodes Up', `${data.nodesUp}/${data.nodesTotal}`],
+          ['Nodes Sealing', `${data.nodesSealing}/${data.nodesTotal}`],
+          ['Max Block Head', data.maxBlockHead ?? '-'],
+          ['Chain ID', data.chainId ?? 'unknown'],
+          ['Total Peers', data.totalPeers ?? 'unknown'],
+        ];
+
+        summary.innerHTML = items
+          .map(([label, value]) => `<div class="stat"><div class="muted">${label}</div><strong>${value}</strong></div>`)
+          .join('');
+      }
+
+      function renderNodes(nodes) {
+        nodeGrid.innerHTML = nodes
+          .map((node) => {
+            const upText = node.up ? 'Up' : 'Down';
+            const sealingText = node.sealingHealthy ? 'Yes' : 'No';
+            return `
+              <div class="node-card ${node.up ? '' : 'down'}">
+                <div class="node-title"><strong>${node.rpc}</strong></div>
+                <div class="kv"><strong>Status:</strong> ${upText}</div>
+                <div class="kv"><strong>Head:</strong> ${node.blockHead2 ?? node.blockHead1 ?? '-'}</div>
+                <div class="kv"><strong>Sealing:</strong> ${sealingText}</div>
+                <div class="kv"><strong>Peers:</strong> ${node.peerCount ?? '-'}</div>
+                <div class="kv"><strong>Chain ID:</strong> ${node.chainId ?? '-'}</div>
+                ${node.error ? `<div class="error">${node.error}</div>` : ''}
+              </div>
+            `;
+          })
+          .join('');
+      }
+
+      async function refresh() {
         try {
           const response = await fetch('/api/status');
           const data = await response.json();
 
-          rpc.textContent = data.rpc || '-';
-          blockHead.textContent = data.blockHead ?? '-';
-          chainId.textContent = data.chainId ?? '-';
-          peerCount.textContent = data.peerCount ?? '-';
-          setBadge(Boolean(data.sealingHealthy));
+          setOverall(Boolean(data.overall && data.overall.healthy));
+          overallReason.textContent = data.overall?.reason || '-';
+          timestamp.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
 
-          error.textContent = data.error ? `Error: ${data.error}` : '';
-        } catch (err) {
-          setBadge(false);
-          error.textContent = `Error: ${err.message}`;
+          renderSummary(data.summary || {});
+          renderNodes(data.nodes || []);
+        } catch (error) {
+          setOverall(false);
+          overallReason.textContent = error.message;
         }
       }
 
-      refreshStatus();
-      setInterval(refreshStatus, 2000);
+      refresh();
+      setInterval(refresh, 2000);
     </script>
   </body>
 </html>
