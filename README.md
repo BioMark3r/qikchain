@@ -358,7 +358,7 @@ Start devnet and the UI:
 
 ```bash
 make up
-make status-ui
+RPC_URLS="http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548" make status-ui
 ```
 
 Then open:
@@ -369,7 +369,8 @@ http://127.0.0.1:8787
 
 Environment overrides:
 
-- `RPC_URL` (default: `http://127.0.0.1:8545`)
+- `RPC_URLS` (default: `http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548` in `make status-ui`)
+- `RPC_URL` (single-endpoint fallback)
 - `PORT` (default: `8787`)
 
 ## Metrics
