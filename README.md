@@ -249,7 +249,20 @@ Scripts:
 ### Start PoA
 
 ```bash
-INSECURE_SECRETS=1 RESET=1 CONSENSUS=poa ./scripts/devnet-ibft4.sh
+make up
+```
+
+`make up` is idempotent when `build/genesis.json` is unchanged. If existing node data was initialized with a different genesis, startup fails fast with:
+
+```text
+Genesis changed since this data dir was initialized.
+Run: RESET=1 make up
+```
+
+Reset and rebuild devnet state when genesis inputs change:
+
+```bash
+RESET=1 make up
 ```
 
 ### Docker Compose devnet (4-node IBFT)
@@ -293,7 +306,7 @@ make docker-devnet-down RESET=1 # stop + remove volumes
 ### Start PoS
 
 ```bash
-INSECURE_SECRETS=1 RESET=1 CONSENSUS=pos ./scripts/devnet-ibft4.sh
+RESET=1 make up CONSENSUS=pos
 ```
 
 ### Script configuration knobs
