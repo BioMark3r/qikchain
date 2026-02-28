@@ -101,17 +101,120 @@ require_bin() {
 
 ensure_dirs() {
   mkdir -p "$NET_DIR" "$ROOT/build" "$ROOT/build/deployments"
-  for d in "${NODE_DIRS[@]}"; do
-    mkdir -p "$d"
-  done
 }
 
 reset_net() {
   if [[ "$RESET" == "1" ]]; then
+    local stop_script="$ROOT/scripts/devnet-ibft4-stop.sh"
+    if [[ -x "$stop_script" ]]; then
+      log "RESET=1: stopping running devnet processes (best effort)"
+      FORCE=1 CLEAN_PORTS=1 bash "$stop_script" >/dev/null 2>&1 || true
+    fi
+
     log "RESET=1: wiping network dir: $NET_DIR"
     rm -rf "$NET_DIR"
+
+    log "RESET=1: removing generated chain artifacts"
+    rm -f "$GENESIS_OUT" "$CHAIN_SPLIT_OUT" "$GENESIS_ETH_OUT" "$METADATA_OUT"
+
     ensure_dirs
   fi
+}
+
+genesis_fingerprint() {
+  local file="$1"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+    return
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$file" | awk '{print $NF}'
+    return
+  fi
+
+  echo "ERROR: no SHA256 tool available (need sha256sum, shasum, or openssl)" >&2
+  exit 1
+}
+
+node_is_initialized() {
+  local dir="$1"
+  [[ -f "$dir/consensus/validator.key" || -f "$dir/.genesis.sha256" || -d "$dir/blockchain" ]]
+}
+
+has_initialized_nodes() {
+  local d
+  for d in "${NODE_DIRS[@]}"; do
+    if node_is_initialized "$d"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+persist_genesis_fingerprint() {
+  local fingerprint="$1"
+  local d
+  for d in "${NODE_DIRS[@]}"; do
+    if node_is_initialized "$d"; then
+      mkdir -p "$d"
+      printf '%s\n' "$fingerprint" > "$d/.genesis.sha256"
+    fi
+  done
+}
+
+best_effort_verify_stored_genesis() {
+  local node_dir="$1"
+
+  if "$EDGE_BIN" genesis --help 2>&1 | rg -q "verify"; then
+    if "$EDGE_BIN" genesis verify --chain "$CHAIN_PATH" --data-dir "$node_dir" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+fail_genesis_mismatch() {
+  cat >&2 <<'EOF'
+Genesis changed since this data dir was initialized.
+Run: RESET=1 make up
+EOF
+  exit 1
+}
+
+check_existing_genesis_fingerprint() {
+  local current_fingerprint="$1"
+  local d
+
+  for d in "${NODE_DIRS[@]}"; do
+    if ! node_is_initialized "$d"; then
+      continue
+    fi
+
+    local fingerprint_file="$d/.genesis.sha256"
+    if [[ -f "$fingerprint_file" ]]; then
+      local saved
+      saved="$(tr -d '[:space:]' < "$fingerprint_file" 2>/dev/null || true)"
+      if [[ -z "$saved" || "$saved" != "$current_fingerprint" ]]; then
+        fail_genesis_mismatch
+      fi
+      continue
+    fi
+
+    if best_effort_verify_stored_genesis "$d"; then
+      printf '%s\n' "$current_fingerprint" > "$fingerprint_file"
+      continue
+    fi
+
+    fail_genesis_mismatch
+  done
 }
 
 # Create node secrets if missing
@@ -345,8 +448,26 @@ main() {
 
   ensure_dirs
   reset_net
+  local had_initialized_nodes=0
+  if has_initialized_nodes; then
+    had_initialized_nodes=1
+  fi
+
   init_secrets_if_needed
   build_genesis
+
+  if [[ ! -f "$CHAIN_PATH" ]]; then
+    echo "ERROR: chain file not found at $CHAIN_PATH" >&2
+    exit 1
+  fi
+
+  local current_fingerprint
+  current_fingerprint="$(genesis_fingerprint "$CHAIN_PATH")"
+
+  if [[ "$had_initialized_nodes" == "1" && "$RESET" != "1" ]]; then
+    check_existing_genesis_fingerprint "$current_fingerprint"
+  fi
+  persist_genesis_fingerprint "$current_fingerprint"
 
   # Start nodes (node1 first, then others for bootnode)
   start_node 0
