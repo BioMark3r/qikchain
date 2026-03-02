@@ -477,57 +477,66 @@ Security and auth:
 
 Transaction features (disabled by default):
 
-- Enable write actions only with:
+- Tx API routes are available under `/api/tx/*` and are always token-gated.
+- Server-side gate behavior:
+  - `READONLY=1` → tx routes return `403 {"error":"readonly"}`.
+  - Missing `TX_TOKEN` → tx routes return `503 {"error":"tx_disabled"}`.
+  - Wrong `X-TX-TOKEN` header → tx routes return `401 {"error":"unauthorized"}`.
+- UI config endpoint:
+  - `GET /api/config` returns `{ readonly: boolean, txEnabled: boolean }`.
+
+Enable tx actions for dev/testing:
 
 ```bash
-ENABLE_TX=1
-TX_TOKEN=replace-with-strong-shared-secret
+export TX_TOKEN=replace-with-strong-shared-secret
+export TX_FROM_PRIVATE_KEY=0x<dev-only-private-key>
+export RPC_URL=http://127.0.0.1:8545
+# optional
+export BURN_ADDRESS=0x000000000000000000000000000000000000dEaD
+export CHAIN_ID=1101
 ```
 
-- All write endpoints require:
-  - Basic Auth (if configured)
-  - `X-TX-TOKEN: <TX_TOKEN>` header
+Run in safe readonly prod mode:
 
-- Exposed status fields:
-  - `txEnabled` (`true` when `ENABLE_TX=1` and `TX_TOKEN` is set)
-  - `writeMode` (`enabled|disabled`)
+```bash
+export READONLY=1
+unset TX_TOKEN
+unset TX_FROM_PRIVATE_KEY
+```
+
+⚠️ Warning: `TX_FROM_PRIVATE_KEY` is for dev-only flows. Never use funded mainnet/private production keys.
 
 Safety limits:
 
 - JSON request body is limited to 16kb.
-- `TX_RATE_LIMIT_PER_MIN` (default: `10`) across all write endpoints.
-- `TX_MAX_VALUE_WEI` (default: `1000000000000000`, 0.001 ETH) for native transfers.
-- `RAW_TX_MAX_BYTES` (default: `8192`) for `/api/tx/submit-raw`.
+- `TX_RATE_LIMIT_PER_MIN` (default: `10`) per IP across tx endpoints.
+- `RAW_TX_MAX_BYTES` (default: `8192`) for `/api/tx/send-raw`.
 - `DEPLOY_GAS_CAP` (default: `2000000`) for test deploy.
-- `WAIT_FOR_RECEIPT=1` waits up to ~10s for a mined receipt in tx responses.
 
 Write endpoints:
 
-- `POST /api/tx/burn` sends 1 wei to `0x000000000000000000000000000000000000dEaD`.
-- `POST /api/tx/deploy-test` deploys a fixed minimal test contract bytecode.
-- `POST /api/tx/submit-raw` forwards a pre-signed raw transaction (no server-side signing).
+- `POST /api/tx/send-wei` sends 1 wei to burn address.
+- `POST /api/tx/deploy-test-contract` deploys an embedded minimal test contract bytecode.
+- `POST /api/tx/send-raw` forwards a pre-signed raw transaction.
 
 Examples:
 
-Burn:
+Send 1 wei:
 
 ```bash
-curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json" \
-  -d '{}' http://127.0.0.1:8787/api/tx/burn
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8787/api/tx/send-wei
 ```
 
-Deploy:
+Deploy test contract:
 
 ```bash
-curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json" \
-  -d '{}' http://127.0.0.1:8787/api/tx/deploy-test
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8787/api/tx/deploy-test-contract
 ```
 
-Raw:
+Submit raw transaction:
 
 ```bash
-curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json" \
-  -d '{"rawTx":"0x..."}' http://127.0.0.1:8787/api/tx/submit-raw
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rawTxHex":"0x...","rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8787/api/tx/send-raw
 ```
 
 

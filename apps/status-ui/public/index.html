@@ -24,12 +24,20 @@
       .rpc { word-break:break-all; font-size:13px; margin-bottom:6px; }
       .warn { color:#b45309; font-weight:600; }
       button { margin-right:8px; margin-top:8px; padding:8px 12px; }
-      textarea { width:100%; min-height:80px; margin-top:8px; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      textarea, input, select { width:100%; margin-top:8px; padding:8px; box-sizing:border-box; }
+      textarea { min-height:80px; }
       pre { background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px; overflow:auto; }
+      .banner { background:#fff3cd; border:1px solid #ffecb5; border-radius:8px; color:#7a5d00; padding:10px; margin-bottom:14px; display:none; }
+      .row { margin-top: 8px; }
+      .status-line { margin-top:8px; color:#6b7280; font-size:12px; }
+      .status-line.error { color:#b42332; }
     </style>
   </head>
   <body>
     <h1>QikChain Status</h1>
+
+    <div id="readonlyBanner" class="banner">Readonly mode enabled. Transaction actions are blocked.</div>
 
     <div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
@@ -41,15 +49,23 @@
 
     <div class="panel summary" id="summary"></div>
 
-    <div class="panel" id="txPanel" style="display:none;">
-      <strong>Transaction Actions</strong>
-      <div class="muted">Browser UI does not collect TX_TOKEN. Use proxy/curl to inject <code>X-TX-TOKEN</code>.</div>
+    <div class="panel" id="txPanel">
+      <strong>Transactions</strong>
+      <div class="row">
+        <label for="txTokenInput" class="muted">Tx Token</label>
+        <input id="txTokenInput" type="password" placeholder="Enter X-TX-TOKEN" />
+      </div>
+      <div class="row">
+        <label for="txRpcSelect" class="muted">RPC target</label>
+        <select id="txRpcSelect"></select>
+      </div>
+      <div class="status-line" id="txInlineStatus">Enter a token to enable actions.</div>
       <div>
-        <button id="burnBtn">Send 1 wei to burn address</button>
+        <button id="burnBtn">Send 1 wei → burn</button>
         <button id="deployBtn">Deploy test contract</button>
       </div>
       <details style="margin-top:8px;">
-        <summary>Advanced: submit raw signed tx</summary>
+        <summary>Submit raw signed tx</summary>
         <textarea id="rawTxInput" placeholder="0x..."></textarea>
         <button id="rawSubmitBtn">Submit raw tx</button>
       </details>
@@ -68,12 +84,58 @@
       const timestamp = document.getElementById('timestamp');
       const summaryEl = document.getElementById('summary');
       const nodesEl = document.getElementById('nodes');
-      const txPanel = document.getElementById('txPanel');
       const rpcConfig = document.getElementById('rpcConfig');
       const txResult = document.getElementById('txResult');
       const rawTxInput = document.getElementById('rawTxInput');
+      const txTokenInput = document.getElementById('txTokenInput');
+      const txRpcSelect = document.getElementById('txRpcSelect');
+      const txInlineStatus = document.getElementById('txInlineStatus');
+      const readonlyBanner = document.getElementById('readonlyBanner');
+      const burnBtn = document.getElementById('burnBtn');
+      const deployBtn = document.getElementById('deployBtn');
+      const rawSubmitBtn = document.getElementById('rawSubmitBtn');
 
-      let txEnabled = false;
+      const txState = {
+        readonly: false,
+        txEnabled: false,
+        unauthorized: false,
+        rpcUrls: [],
+      };
+
+      function canSubmitTx() {
+        return Boolean(txTokenInput.value.trim()) && !txState.readonly && txState.txEnabled;
+      }
+
+      function updateTxControlState() {
+        const disabled = !canSubmitTx();
+        burnBtn.disabled = disabled;
+        deployBtn.disabled = disabled;
+        rawSubmitBtn.disabled = disabled;
+
+        if (txState.readonly) {
+          txInlineStatus.textContent = 'Readonly mode enabled';
+          txInlineStatus.className = 'status-line error';
+          return;
+        }
+        if (!txState.txEnabled) {
+          txInlineStatus.textContent = 'Tx actions disabled on server';
+          txInlineStatus.className = 'status-line error';
+          return;
+        }
+        if (!txTokenInput.value.trim()) {
+          txInlineStatus.textContent = 'Enter Tx Token to enable tx actions';
+          txInlineStatus.className = 'status-line';
+          return;
+        }
+        if (txState.unauthorized) {
+          txInlineStatus.textContent = 'Unauthorized (check token)';
+          txInlineStatus.className = 'status-line error';
+          return;
+        }
+
+        txInlineStatus.textContent = 'Tx actions enabled';
+        txInlineStatus.className = 'status-line';
+      }
 
       function renderSummary(data) {
         const summary = data.summary || {};
@@ -114,31 +176,86 @@
           .join('');
       }
 
+      function fillRpcSelect(rpcs) {
+        const current = txRpcSelect.value;
+        txRpcSelect.innerHTML = '';
+        (rpcs || []).forEach((rpc, index) => {
+          const option = document.createElement('option');
+          option.value = rpc;
+          option.textContent = rpc;
+          if (current) {
+            option.selected = rpc === current;
+          } else {
+            option.selected = index === 0;
+          }
+          txRpcSelect.appendChild(option);
+        });
+      }
+
+      function renderTxResult(payload) {
+        const hash = payload.txHash ? `txHash: ${payload.txHash}` : '';
+        const address = payload.contractAddress ? `\ncontractAddress: ${payload.contractAddress}` : '';
+        txResult.textContent = `${hash}${address}`.trim() || JSON.stringify(payload, null, 2);
+      }
+
       async function postTx(path, body) {
+        txState.unauthorized = false;
+        updateTxControlState();
         try {
           const response = await fetch(path, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body || {}),
+            headers: {
+              'content-type': 'application/json',
+              'x-tx-token': txTokenInput.value.trim(),
+            },
+            body: JSON.stringify({ ...(body || {}), rpcUrl: txRpcSelect.value || undefined }),
           });
           const payload = await response.json();
           if (!response.ok) {
-            if (response.status === 403) {
-              txResult.textContent = 'Tx requires X-TX-TOKEN and ENABLE_TX=1 on server.';
-              return;
+            if (response.status === 401) {
+              txState.unauthorized = true;
+              updateTxControlState();
+            }
+            if (response.status === 403 && payload.error === 'readonly') {
+              txState.readonly = true;
+              readonlyBanner.style.display = 'block';
+              updateTxControlState();
+            }
+            if (response.status === 503 && payload.error === 'tx_disabled') {
+              txState.txEnabled = false;
+              updateTxControlState();
             }
             txResult.textContent = `Error ${response.status}: ${payload.error || 'request failed'}`;
             return;
           }
-          txResult.textContent = JSON.stringify(payload, null, 2);
+          renderTxResult(payload);
         } catch (_error) {
           txResult.textContent = 'Failed to submit transaction request.';
         }
       }
 
-      document.getElementById('burnBtn').addEventListener('click', () => postTx('/api/tx/burn', {}));
-      document.getElementById('deployBtn').addEventListener('click', () => postTx('/api/tx/deploy-test', {}));
-      document.getElementById('rawSubmitBtn').addEventListener('click', () => postTx('/api/tx/submit-raw', { rawTx: rawTxInput.value.trim() }));
+      document.getElementById('burnBtn').addEventListener('click', () => postTx('/api/tx/send-wei', {}));
+      document.getElementById('deployBtn').addEventListener('click', () => postTx('/api/tx/deploy-test-contract', {}));
+      document.getElementById('rawSubmitBtn').addEventListener('click', () => postTx('/api/tx/send-raw', { rawTxHex: rawTxInput.value.trim() }));
+      txTokenInput.addEventListener('input', () => {
+        txState.unauthorized = false;
+        updateTxControlState();
+      });
+
+      async function refreshConfig() {
+        try {
+          const response = await fetch('/api/config');
+          const config = await response.json();
+          txState.readonly = Boolean(config.readonly);
+          txState.txEnabled = Boolean(config.txEnabled);
+        } catch (_error) {
+          txState.readonly = false;
+          txState.txEnabled = false;
+        }
+
+        readonlyBanner.style.display = txState.readonly ? 'block' : 'none';
+        updateTxControlState();
+      }
 
       async function refresh() {
         try {
@@ -151,15 +268,15 @@
           overallReason.textContent = data.overall?.reason || '-';
           timestamp.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
 
-          txEnabled = Boolean(data.txEnabled);
-          txPanel.style.display = txEnabled ? 'block' : 'none';
-
           const configuredCount = Number(data.configuredRpcs ?? (Array.isArray(data.nodes) ? data.nodes.length : 0));
           const configuredList = Array.isArray(data.rpcs) && data.rpcs.length > 0 ? ` (${data.rpcs.join(', ')})` : '';
           rpcConfig.textContent = `Configured endpoints: ${configuredCount}${configuredList}`;
+          txState.rpcUrls = Array.isArray(data.rpcs) ? data.rpcs : [];
+          fillRpcSelect(txState.rpcUrls);
 
           renderSummary(data);
           renderNodes(data.nodes);
+          await refreshConfig();
         } catch (_error) {
           overallBadge.textContent = 'Error';
           overallBadge.className = 'badge degraded';
