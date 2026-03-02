@@ -367,15 +367,32 @@ JSON=1 LOGS=1 LOG_LINES=40 ./scripts/devnet-ibft4-status.sh | jq .
 
 The repository includes a tiny status dashboard backed by the existing `qikchain` CLI.
 
-Dev example:
+Start the UI (background/nohup):
 
 ```bash
-RPC_URLS="http://127.0.0.1:8545,http://127.0.0.1:8546" make status-ui
+make status-ui
 ```
 
-Prod example:
+`make status-ui` now:
+
+- Installs dependencies (`npm ci` when `package-lock.json` exists, otherwise `npm install`)
+- Runs the server in the background with `nohup`
+- Writes process state to `.data/status-ui/status-ui.pid`
+- Writes logs to `.data/status-ui/status-ui.log`
+- Defaults to `HOST=0.0.0.0` and `PORT=8787` (unless overridden)
+- Calls `http://127.0.0.1:<PORT>/api/status` and prints detected `localIP` / `publicIP` URLs when available
+- Is idempotent (if already running, it reports the existing process and exits)
+
+Examples:
 
 ```bash
+# custom RPC endpoints
+RPC_URLS="http://127.0.0.1:8545,http://127.0.0.1:8546" make status-ui
+
+# bind loopback only
+HOST=127.0.0.1 PORT=8787 make status-ui
+
+# hardened mode
 READONLY_PROD=1 \
 AUTH_USER=admin \
 AUTH_PASS=strongpassword \
@@ -384,10 +401,12 @@ HOST=127.0.0.1 \
 make status-ui
 ```
 
-Then open:
+Stop and logs:
 
-```
-http://127.0.0.1:8787
+```bash
+make stop-ui
+make status-ui-logs
+make status-ui-status
 ```
 
 Environment overrides:
@@ -399,6 +418,10 @@ Environment overrides:
 - `AUTH_USER` and `AUTH_PASS` (enable basic auth only when both are set)
 - `HOST` (default: `127.0.0.1` in readonly prod, otherwise `0.0.0.0`)
 - `PORT` (default: `8787`)
+
+Security note:
+
+- Binding to `0.0.0.0` exposes the UI on all network interfaces. On shared/public hosts, protect access with `AUTH_USER` + `AUTH_PASS`, firewall/VPN rules, and consider `READONLY_PROD=1`.
 
 Status API highlights:
 

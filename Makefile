@@ -12,6 +12,10 @@ ROOT := $(strip $(ROOT))
 BIN_DIR := $(ROOT)/bin
 BUILD_DIR := $(ROOT)/build
 DATA_DIR := $(ROOT)/.data
+UI_DIR := apps/status-ui
+UI_STATE_DIR := $(DATA_DIR)/status-ui
+UI_PID := $(UI_STATE_DIR)/status-ui.pid
+UI_LOG := $(UI_STATE_DIR)/status-ui.log
 
 BUILD_TARGETS := build-qikchain
 ifneq ($(wildcard cmd/qikchaind),)
@@ -44,7 +48,7 @@ endif
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
-	status-ui status-ui-logs stop-ui up-with-ui
+	status-ui status-ui-logs status-ui-status stop-ui up-with-ui
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -83,8 +87,9 @@ help:
 	@echo "  make docker-devnet-up   Start Docker devnet via docker compose"
 	@echo "  make docker-devnet-down Stop Docker devnet (set RESET=1 to remove volumes)"
 	@echo "  make docker-devnet-logs Follow Docker devnet logs"
-	@echo "  make status-ui        Install and run the status UI (http://127.0.0.1:8787)"
+	@echo "  make status-ui        Install and run the status UI in background (default: HOST=0.0.0.0 PORT=8787)"
 	@echo "  make status-ui-logs   Tail status UI logs"
+	@echo "  make status-ui-status Check status UI pid/process state"
 	@echo "  make stop-ui          Stop status UI background process"
 	@echo "  make up-with-ui       Start devnet in background, then run status UI"
 	@echo ""
@@ -272,48 +277,91 @@ logs:
 
 status-ui:
 	@echo "==> Starting status UI in background"
-	@mkdir -p /tmp/qikchain
-	@pid_file=/tmp/qikchain/status-ui.pid; \
-	log_file=/tmp/qikchain/status-ui.log; \
-	if [ -f "$$pid_file" ] && kill -0 $$(cat "$$pid_file") >/dev/null 2>&1; then \
-		echo "status-ui already running (pid=$$(cat "$$pid_file"))"; \
-		echo "URL: http://127.0.0.1:8787"; \
-		echo "PID file: $$pid_file"; \
-		echo "Log file: $$log_file"; \
-		exit 0; \
+	@mkdir -p "$(UI_STATE_DIR)"
+	@host="$${HOST:-0.0.0.0}"; \
+	port="$${PORT:-8787}"; \
+	api_base="http://127.0.0.1:$$port"; \
+	if [ -f "$(UI_PID)" ]; then \
+		pid=$$(cat "$(UI_PID)"); \
+		if kill -0 "$$pid" >/dev/null 2>&1; then \
+			echo "status-ui already running (pid=$$pid)"; \
+			echo "Loopback URL: $$api_base"; \
+			echo "PID file: $(UI_PID)"; \
+			echo "Log file: $(UI_LOG)"; \
+			exit 0; \
+		fi; \
+		echo "Removing stale PID file: $(UI_PID)"; \
+		rm -f "$(UI_PID)"; \
 	fi; \
-	rm -f "$$pid_file"; \
-	(cd apps/status-ui; \
-		if [ ! -d node_modules ]; then npm install; fi; \
-		RPC_URLS="$${RPC_URLS:-http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548}" nohup node server.js >>"$$log_file" 2>&1 & \
-		echo $$! >"$$pid_file"); \
-	echo "URL: http://127.0.0.1:8787"; \
-	echo "PID file: $$pid_file"; \
-	echo "Log file: $$log_file"
+	if [ -f "$(UI_DIR)/package-lock.json" ]; then \
+		npm --prefix "$(UI_DIR)" ci; \
+	else \
+		npm --prefix "$(UI_DIR)" install; \
+	fi; \
+	(cd "$(UI_DIR)" && nohup env HOST="$$host" PORT="$$port" node server.js >>"$(UI_LOG)" 2>&1 & echo $$! >"$(UI_PID)"); \
+	sleep 1; \
+	pid=$$(cat "$(UI_PID)" 2>/dev/null || true); \
+	echo "UI running (pid $$pid)"; \
+	echo "Loopback URL: http://127.0.0.1:$$port"; \
+	status_json=$$(curl -fsS "$$api_base/api/status" 2>/dev/null || true); \
+	if [ -n "$$status_json" ]; then \
+		ips=$$(printf '%s' "$$status_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("localIP") or ""); print(d.get("publicIP") or "")' 2>/dev/null || true); \
+		local_ip=$$(printf '%s\n' "$$ips" | sed -n '1p'); \
+		public_ip=$$(printf '%s\n' "$$ips" | sed -n '2p'); \
+		if [ -n "$$local_ip" ]; then \
+			echo "Local URL:  http://$$local_ip:$$port"; \
+		fi; \
+		if [ -n "$$public_ip" ]; then \
+			echo "Public URL: http://$$public_ip:$$port"; \
+		fi; \
+	else \
+		echo "Could not fetch $$api_base/api/status yet. Check logs: $(UI_LOG)"; \
+	fi; \
+	echo "Log file: $(UI_LOG)"
 
 status-ui-logs:
-	@log_file=/tmp/qikchain/status-ui.log; \
-	if [ ! -f "$$log_file" ]; then \
-		echo "status-ui log file not found: $$log_file"; \
+	@if [ ! -f "$(UI_LOG)" ]; then \
+		echo "status-ui log file not found: $(UI_LOG)"; \
 		exit 1; \
 	fi; \
-	tail -f "$$log_file"
+	tail -f "$(UI_LOG)"
+
+status-ui-status:
+	@if [ ! -f "$(UI_PID)" ]; then \
+		echo "status-ui is not running (missing $(UI_PID))"; \
+		exit 0; \
+	fi; \
+	pid=$$(cat "$(UI_PID)"); \
+	if kill -0 "$$pid" >/dev/null 2>&1; then \
+		echo "status-ui is running (pid=$$pid)"; \
+		echo "Log file: $(UI_LOG)"; \
+	else \
+		echo "status-ui pid file exists but process $$pid is not running"; \
+	fi
 
 stop-ui:
 	@echo "==> Stopping status UI"
-	@pid_file=/tmp/qikchain/status-ui.pid; \
-	if [ ! -f "$$pid_file" ]; then \
-		echo "status-ui is not running (missing $$pid_file)"; \
+	@if [ ! -f "$(UI_PID)" ]; then \
+		echo "status-ui is not running (missing $(UI_PID))"; \
 		exit 0; \
 	fi; \
-	pid=$$(cat "$$pid_file"); \
+	pid=$$(cat "$(UI_PID)"); \
 	if kill -0 "$$pid" >/dev/null 2>&1; then \
 		kill "$$pid"; \
+		i=0; \
+		while kill -0 "$$pid" >/dev/null 2>&1 && [ $$i -lt 30 ]; do \
+			sleep 0.1; \
+			i=$$((i + 1)); \
+		done; \
+		if kill -0 "$$pid" >/dev/null 2>&1; then \
+			echo "status-ui did not stop in time; sending SIGKILL to $$pid"; \
+			kill -9 "$$pid" >/dev/null 2>&1 || true; \
+		fi; \
 		echo "stopped status-ui (pid=$$pid)"; \
 	else \
 		echo "status-ui process $$pid not running"; \
 	fi; \
-	rm -f "$$pid_file"
+	rm -f "$(UI_PID)"
 
 up-with-ui:
 	@echo "==> Starting devnet in background"
