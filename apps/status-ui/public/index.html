@@ -15,7 +15,10 @@
       .muted { color:#6b7280; font-size:12px; }
       .nodes { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
       .node { background:#fff; border:1px solid #dde3ec; border-radius:10px; padding:10px; }
-      .node.down { border-color:#f3b8c0; }
+      .node.down { border-color:#f3b8c0; background:#fff5f7; }
+      .state { display:inline-block; padding:2px 8px; border-radius:999px; color:#fff; font-size:11px; margin-bottom:8px; }
+      .state.up { background:#198754; }
+      .state.down { background:#dc3545; }
       .error { color:#b42332; font-size:12px; margin-top:8px; }
       .kv { font-size:13px; margin:2px 0; }
       .rpc { word-break:break-all; font-size:13px; margin-bottom:6px; }
@@ -55,6 +58,7 @@
 
     <div class="panel">
       <strong>Nodes</strong>
+      <div class="muted" id="rpcConfig">Configured endpoints: -</div>
       <div class="nodes" id="nodes"></div>
     </div>
 
@@ -65,6 +69,7 @@
       const summaryEl = document.getElementById('summary');
       const nodesEl = document.getElementById('nodes');
       const txPanel = document.getElementById('txPanel');
+      const rpcConfig = document.getElementById('rpcConfig');
       const txResult = document.getElementById('txResult');
       const rawTxInput = document.getElementById('rawTxInput');
 
@@ -95,8 +100,8 @@
         nodesEl.innerHTML = (nodes || [])
           .map((node) => `
             <div class="node ${node.up ? '' : 'down'}">
+              <div class="state ${node.up ? 'up' : 'down'}">${node.up ? 'Up' : 'Down'}</div>
               <div class="rpc"><strong>${node.rpc}</strong></div>
-              <div class="kv"><strong>up:</strong> ${String(Boolean(node.up))}</div>
               <div class="kv"><strong>chainId:</strong> ${node.chainId ?? '-'}</div>
               <div class="kv"><strong>peerCount:</strong> ${node.peerCount ?? '-'}</div>
               <div class="kv"><strong>blockHead1:</strong> ${node.blockHead1 ?? '-'}</div>
@@ -147,6 +152,10 @@
 
           txEnabled = Boolean(data.txEnabled);
           txPanel.style.display = txEnabled ? 'block' : 'none';
+
+          const configuredCount = Number(data.configuredRpcs ?? (Array.isArray(data.nodes) ? data.nodes.length : 0));
+          const configuredList = Array.isArray(data.rpcs) && data.rpcs.length > 0 ? ` (${data.rpcs.join(', ')})` : '';
+          rpcConfig.textContent = `Configured endpoints: ${configuredCount}${configuredList}`;
 
           renderSummary(data);
           renderNodes(data.nodes);
