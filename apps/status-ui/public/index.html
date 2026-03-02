@@ -78,13 +78,14 @@
       function renderSummary(data) {
         const summary = data.summary || {};
         const divergence = Number(summary.headDivergence ?? 0);
-        const warn = divergence > 3;
+        const divergenceWarn = Number(data.divergenceWarn ?? 3);
+        const warn = divergence > divergenceWarn;
         const items = [
           ['NodesUp / NodesTotal', `${summary.nodesUp ?? '-'} / ${summary.nodesTotal ?? '-'}`],
           ['NodesSealing', summary.nodesSealing ?? '-'],
           ['Min block', summary.minBlockHead ?? '-'],
           ['Max block', summary.maxBlockHead ?? '-'],
-          ['Head divergence', `${divergence}${warn ? ' (warning)' : ''}`],
+          ['Head divergence', `${divergence}${warn ? ` (warning > ${divergenceWarn})` : ''}`],
           ['Chain ID', summary.chainId ?? 'unknown'],
           ['readonlyProd', String(Boolean(data.readonlyProd))],
           ['authEnabled', String(Boolean(data.authEnabled))],

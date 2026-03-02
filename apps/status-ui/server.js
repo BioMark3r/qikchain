@@ -256,6 +256,7 @@ async function computeStatus() {
     timestamp: new Date().toISOString(),
     readonlyProd,
     authEnabled,
+    divergenceWarn,
     txEnabled,
     writeMode: txEnabled ? 'enabled' : 'disabled',
     overall,
@@ -392,6 +393,7 @@ app.get('/api/status', async (_req, res) => {
       timestamp: new Date().toISOString(),
       readonlyProd,
       authEnabled,
+      divergenceWarn,
       txEnabled,
       writeMode: txEnabled ? 'enabled' : 'disabled',
       overall: {
