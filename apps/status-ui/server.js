@@ -47,16 +47,26 @@ function parsePositiveBigInt(value) {
 }
 
 function parseRpcUrls() {
-  const rawList = process.env.RPC_URLS || process.env.RPC_URL || 'http://127.0.0.1:8545';
-  return rawList
+  const parsedRpcUrls = String(process.env.RPC_URLS || '')
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+
+  if (parsedRpcUrls.length > 0) {
+    return parsedRpcUrls;
+  }
+
+  const fallbackRpc = String(process.env.RPC_URL || '').trim();
+  if (fallbackRpc) {
+    return [fallbackRpc];
+  }
+
+  return ['http://127.0.0.1:8545'];
 }
 
 function sanitizeError(err) {
   if (readonlyProd) {
-    return 'node check failed';
+    return 'unavailable';
   }
   return err;
 }
@@ -184,7 +194,7 @@ async function checkNode(rpc) {
       ...node,
       up: false,
       sealingHealthy: false,
-      error: sanitizeError(error.message || 'unknown error'),
+      error: sanitizeError('unavailable'),
     };
   }
 }
@@ -250,6 +260,8 @@ async function computeStatus() {
     writeMode: txEnabled ? 'enabled' : 'disabled',
     overall,
     summary,
+    configuredRpcs: rpcUrls.length,
+    rpcs: readonlyProd ? rpcUrls.map((rpc) => maskRpcUrl(rpc)) : rpcUrls,
     nodes: sanitizedNodes,
   };
 }
@@ -395,6 +407,8 @@ app.get('/api/status', async (_req, res) => {
         maxBlockHead: null,
         headDivergence: 0,
       },
+      configuredRpcs: parseRpcUrls().length,
+      rpcs: readonlyProd ? parseRpcUrls().map((rpc) => maskRpcUrl(rpc)) : parseRpcUrls(),
       nodes: parseRpcUrls().map((rpc) => ({
         rpc: maskRpcUrl(rpc),
         up: false,
@@ -403,7 +417,7 @@ app.get('/api/status', async (_req, res) => {
         blockHead1: null,
         blockHead2: null,
         sealingHealthy: false,
-        error: sanitizeError(error.message || 'aggregation failed'),
+        error: sanitizeError('unavailable'),
       })),
     });
   }

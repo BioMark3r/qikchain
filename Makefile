@@ -272,7 +272,7 @@ status-ui:
 	@echo "==> Starting status UI"
 	@cd apps/status-ui; \
 	if [ ! -d node_modules ]; then npm install; fi; \
-	node server.js
+	RPC_URLS="$${RPC_URLS:-http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548}" node server.js
 
 up-with-ui:
 	@echo "==> Starting devnet in background"
