@@ -265,10 +265,9 @@ logs:
 
 status-ui:
 	@echo "==> Starting status UI"
-	@RPC_URLS_DEFAULT="http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548"; \
-	cd apps/status-ui; \
+	@cd apps/status-ui; \
 	if [ ! -d node_modules ]; then npm install; fi; \
-	RPC_URLS="$${RPC_URLS:-$$RPC_URLS_DEFAULT}" node server.js
+	node server.js
 
 up-with-ui:
 	@echo "==> Starting devnet in background"

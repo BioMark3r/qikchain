@@ -1,44 +1,27 @@
+const crypto = require('crypto');
 const express = require('express');
 const path = require('path');
 const { execFile } = require('child_process');
-const os = require('os');
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
+const readonlyProd = process.env.READONLY_PROD === '1';
+const host = process.env.HOST || (readonlyProd ? '127.0.0.1' : '0.0.0.0');
+const cacheMs = Math.max(0, Number(process.env.CACHE_MS || 1000));
 const repoRoot = path.resolve(__dirname, '..', '..');
 const cliPath = path.join(repoRoot, 'bin', 'qikchain');
 const COMMAND_TIMEOUT_MS = 3000;
 const SEALING_DELAY_MS = 2000;
-const CONCURRENCY_LIMIT = 4;
 
+const authUser = process.env.AUTH_USER || '';
+const authPass = process.env.AUTH_PASS || '';
+const authEnabled = authUser.length > 0 && authPass.length > 0;
 
-function getLocalIP() {
-  const interfaces = os.networkInterfaces();
-  for (const entries of Object.values(interfaces)) {
-    if (!Array.isArray(entries)) {
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry && entry.family === 'IPv4' && !entry.internal) {
-        return entry.address;
-      }
-    }
-  }
-  return null;
-}
-
-async function getPublicIP() {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    if (!response.ok) {
-      return null;
-    }
-    const data = await response.json();
-    return data && typeof data.ip === 'string' ? data.ip : null;
-  } catch (_error) {
-    return null;
-  }
-}
+const statusCache = {
+  value: null,
+  computedAt: 0,
+  inFlight: null,
+};
 
 function parseRpcUrls() {
   const rawList = process.env.RPC_URLS || process.env.RPC_URL || 'http://127.0.0.1:8545';
@@ -46,6 +29,26 @@ function parseRpcUrls() {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function sanitizeError(err) {
+  if (readonlyProd) {
+    return 'node check failed';
+  }
+  return err;
+}
+
+function maskRpcUrl(rpc) {
+  if (!readonlyProd) {
+    return rpc;
+  }
+
+  try {
+    const parsed = new URL(rpc);
+    return parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
+  } catch (_error) {
+    return 'masked';
+  }
 }
 
 function runQikchain(args) {
@@ -72,8 +75,11 @@ function parseFieldNumber(stdout, fieldName) {
 }
 
 function parseChainId(stdout) {
-  const value = parseFieldNumber(stdout, 'chainId');
-  return value === null ? null : String(value);
+  const match = stdout.match(/chainId\s*:\s*([^\s]+)/i);
+  if (!match) {
+    return null;
+  }
+  return String(match[1]).trim();
 }
 
 function parsePeerCount(stdout) {
@@ -99,7 +105,7 @@ function sleep(ms) {
 }
 
 async function checkNode(rpc) {
-  const base = {
+  const node = {
     rpc,
     up: false,
     chainId: null,
@@ -111,55 +117,33 @@ async function checkNode(rpc) {
   };
 
   try {
-    const [statusOutput, blockHeadOutput1] = await Promise.all([
-      runQikchain(['status', '--rpc', rpc]),
-      runQikchain(['block', 'head', '--rpc', rpc]),
-    ]);
+    const statusOutput = await runQikchain(['status', '--rpc', rpc]);
+    const blockHeadOutput1 = await runQikchain(['block', 'head', '--rpc', rpc]);
 
-    base.chainId = parseChainId(statusOutput);
-    base.peerCount = parsePeerCount(statusOutput);
-    base.blockHead1 = parseBlockHead(blockHeadOutput1);
+    node.chainId = parseChainId(statusOutput);
+    node.peerCount = parsePeerCount(statusOutput);
+    node.blockHead1 = parseBlockHead(blockHeadOutput1);
 
     await sleep(SEALING_DELAY_MS);
 
     const blockHeadOutput2 = await runQikchain(['block', 'head', '--rpc', rpc]);
-    base.blockHead2 = parseBlockHead(blockHeadOutput2);
+    node.blockHead2 = parseBlockHead(blockHeadOutput2);
 
-    base.up = true;
-    base.sealingHealthy =
-      Number.isInteger(base.blockHead1) &&
-      Number.isInteger(base.blockHead2) &&
-      base.blockHead2 > base.blockHead1;
+    node.up = true;
+    node.sealingHealthy =
+      Number.isInteger(node.blockHead1) &&
+      Number.isInteger(node.blockHead2) &&
+      node.blockHead2 > node.blockHead1;
 
-    return base;
+    return node;
   } catch (error) {
     return {
-      ...base,
+      ...node,
       up: false,
       sealingHealthy: false,
-      error: error.message || 'unknown error',
+      error: sanitizeError(error.message || 'unknown error'),
     };
   }
-}
-
-async function mapWithConcurrency(items, limit, iteratorFn) {
-  const results = new Array(items.length);
-  let index = 0;
-
-  async function worker() {
-    while (true) {
-      const currentIndex = index;
-      index += 1;
-      if (currentIndex >= items.length) {
-        return;
-      }
-      results[currentIndex] = await iteratorFn(items[currentIndex], currentIndex);
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
-  await Promise.all(workers);
-  return results;
 }
 
 function summarize(nodes) {
@@ -170,96 +154,169 @@ function summarize(nodes) {
   const heads = nodes.map((node) => node.blockHead2 ?? node.blockHead1).filter((value) => Number.isInteger(value));
   const maxBlockHead = heads.length > 0 ? Math.max(...heads) : null;
 
-  const peerValues = nodes.map((node) => node.peerCount).filter((value) => Number.isInteger(value));
-  const totalPeers = peerValues.length === nodesTotal ? peerValues.reduce((acc, value) => acc + value, 0) : 'unknown';
-
   const upChainIds = nodes.filter((node) => node.up && node.chainId !== null).map((node) => node.chainId);
-  const chainIdSet = new Set(upChainIds);
-  const chainConsistent = chainIdSet.size <= 1;
-  const chainId = chainIdSet.size === 1 ? upChainIds[0] : null;
+  const uniqueChainIds = [...new Set(upChainIds)];
+  const chainId = uniqueChainIds.length === 1 ? uniqueChainIds[0] : null;
 
-  const healthy = nodesUp >= 1 && nodesSealing >= 1 && chainConsistent;
-  let reason = 'At least one node is up and sealing, and chain ID is consistent.';
+  const healthy = nodesUp > 0 && nodesSealing > 0;
+  let reason = 'At least one node is up and sealing.';
   if (!healthy) {
-    if (nodesUp < 1) {
+    if (nodesUp === 0) {
       reason = 'No nodes are reachable.';
-    } else if (nodesSealing < 1) {
+    } else if (nodesSealing === 0) {
       reason = 'No node appears to be sealing.';
-    } else if (!chainConsistent) {
-      reason = 'Chain ID mismatch across reachable nodes.';
-    } else {
-      reason = 'Network is degraded.';
     }
   }
 
   return {
-    overall: {
-      healthy,
-      reason,
-    },
+    overall: { healthy, reason },
     summary: {
       nodesUp,
       nodesTotal,
       nodesSealing,
-      totalPeers,
       maxBlockHead,
       chainId,
     },
   };
 }
 
+async function computeStatus() {
+  const rpcUrls = parseRpcUrls();
+  const nodes = await Promise.all(rpcUrls.map((rpc) => checkNode(rpc)));
+  const sanitizedNodes = nodes.map((node) => ({
+    ...node,
+    rpc: maskRpcUrl(node.rpc),
+  }));
+  const { overall, summary } = summarize(sanitizedNodes);
+
+  return {
+    timestamp: new Date().toISOString(),
+    readonlyProd,
+    authEnabled,
+    overall,
+    summary,
+    nodes: sanitizedNodes,
+  };
+}
+
+async function getCachedStatus() {
+  const now = Date.now();
+  if (statusCache.value && now - statusCache.computedAt < cacheMs) {
+    return statusCache.value;
+  }
+
+  if (statusCache.inFlight) {
+    return statusCache.inFlight;
+  }
+
+  statusCache.inFlight = computeStatus()
+    .then((result) => {
+      statusCache.value = result;
+      statusCache.computedAt = Date.now();
+      return result;
+    })
+    .finally(() => {
+      statusCache.inFlight = null;
+    });
+
+  return statusCache.inFlight;
+}
+
+function safeEqualStrings(a, b) {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
+function authMiddleware(req, res, next) {
+  if (!authEnabled) {
+    next();
+    return;
+  }
+
+  const header = req.headers.authorization || '';
+  const parts = header.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Basic') {
+    res.set('WWW-Authenticate', 'Basic realm="Qikchain Status"');
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  let decoded = '';
+  try {
+    decoded = Buffer.from(parts[1], 'base64').toString('utf8');
+  } catch (_error) {
+    res.set('WWW-Authenticate', 'Basic realm="Qikchain Status"');
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  const splitIndex = decoded.indexOf(':');
+  const username = splitIndex === -1 ? decoded : decoded.slice(0, splitIndex);
+  const password = splitIndex === -1 ? '' : decoded.slice(splitIndex + 1);
+  const userOk = safeEqualStrings(username, authUser);
+  const passOk = safeEqualStrings(password, authPass);
+
+  if (!userOk || !passOk) {
+    res.set('WWW-Authenticate', 'Basic realm="Qikchain Status"');
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  next();
+}
+
+function readonlyMiddleware(req, res, next) {
+  if (readonlyProd && req.method !== 'GET') {
+    res.status(405).json({ error: 'Method Not Allowed' });
+    return;
+  }
+  next();
+}
+
+app.use(authMiddleware);
+app.use(readonlyMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/status', async (_req, res) => {
-  const rpcUrls = parseRpcUrls();
-
   try {
-    const [nodes, publicIP] = await Promise.all([
-      mapWithConcurrency(rpcUrls, CONCURRENCY_LIMIT, checkNode),
-      getPublicIP(),
-    ]);
-    const { overall, summary } = summarize(nodes);
-
-    res.json({
-      timestamp: new Date().toISOString(),
-      localIP: getLocalIP(),
-      publicIP,
-      overall,
-      summary,
-      nodes,
-    });
+    const data = await getCachedStatus();
+    res.json(data);
   } catch (error) {
     res.json({
       timestamp: new Date().toISOString(),
-      localIP: getLocalIP(),
-      publicIP: null,
+      readonlyProd,
+      authEnabled,
       overall: {
         healthy: false,
-        reason: error.message || 'failed to aggregate status',
+        reason: 'failed to aggregate status',
       },
       summary: {
         nodesUp: 0,
-        nodesTotal: rpcUrls.length,
+        nodesTotal: parseRpcUrls().length,
         nodesSealing: 0,
-        totalPeers: 'unknown',
         maxBlockHead: null,
         chainId: null,
       },
-      nodes: rpcUrls.map((rpc) => ({
-        rpc,
+      nodes: parseRpcUrls().map((rpc) => ({
+        rpc: maskRpcUrl(rpc),
         up: false,
         chainId: null,
         peerCount: null,
         blockHead1: null,
         blockHead2: null,
         sealingHealthy: false,
-        error: 'aggregation failed',
+        error: sanitizeError(error.message || 'aggregation failed'),
       })),
     });
   }
 });
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`status-ui listening on http://0.0.0.0:${port}`);
+app.listen(port, host, () => {
+  console.log(`status-ui listening on http://${host}:${port}`);
   console.log(`RPC targets: ${parseRpcUrls().join(', ')}`);
+  console.log(`readonlyProd=${readonlyProd} authEnabled=${authEnabled} cacheMs=${cacheMs}`);
 });
