@@ -40,7 +40,7 @@ $(error ROOT appears malformed (multiple absolute paths detected): [$(ROOT)])
 endif
 
 
-.PHONY: help print-vars build build-qikchain build-qikchaind build-edge clean clean-data fmt test lint \
+.PHONY: help print-vars build build-qikchain build-txhelper build-qikchaind build-edge clean clean-data fmt test lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
@@ -120,6 +120,11 @@ build-qikchaind:
 	@echo "==> Building qikchaind"
 	@mkdir -p "$(BIN_DIR)"
 	$(GO) build $(GOFLAGS) -o "$(QIKCHAIND_BIN)" ./cmd/qikchaind
+
+build-txhelper:
+	@echo "==> Building txhelper"
+	@mkdir -p "$(BIN_DIR)"
+	$(GO) build $(GOFLAGS) -o "$(BIN_DIR)/txhelper" ./cmd/txhelper
 
 REQUIRE_EDGE ?= 0
 EDGE_DIR := $(ROOT)/third_party/polygon-edge
