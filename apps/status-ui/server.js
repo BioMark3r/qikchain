@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { execFile } = require('child_process');
+const os = require('os');
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -9,6 +10,35 @@ const cliPath = path.join(repoRoot, 'bin', 'qikchain');
 const COMMAND_TIMEOUT_MS = 3000;
 const SEALING_DELAY_MS = 2000;
 const CONCURRENCY_LIMIT = 4;
+
+
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const entries of Object.values(interfaces)) {
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry && entry.family === 'IPv4' && !entry.internal) {
+        return entry.address;
+      }
+    }
+  }
+  return null;
+}
+
+async function getPublicIP() {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    return data && typeof data.ip === 'string' ? data.ip : null;
+  } catch (_error) {
+    return null;
+  }
+}
 
 function parseRpcUrls() {
   const rawList = process.env.RPC_URLS || process.env.RPC_URL || 'http://127.0.0.1:8545';
@@ -184,11 +214,16 @@ app.get('/api/status', async (_req, res) => {
   const rpcUrls = parseRpcUrls();
 
   try {
-    const nodes = await mapWithConcurrency(rpcUrls, CONCURRENCY_LIMIT, checkNode);
+    const [nodes, publicIP] = await Promise.all([
+      mapWithConcurrency(rpcUrls, CONCURRENCY_LIMIT, checkNode),
+      getPublicIP(),
+    ]);
     const { overall, summary } = summarize(nodes);
 
     res.json({
       timestamp: new Date().toISOString(),
+      localIP: getLocalIP(),
+      publicIP,
       overall,
       summary,
       nodes,
@@ -196,6 +231,8 @@ app.get('/api/status', async (_req, res) => {
   } catch (error) {
     res.json({
       timestamp: new Date().toISOString(),
+      localIP: getLocalIP(),
+      publicIP: null,
       overall: {
         healthy: false,
         reason: error.message || 'failed to aggregate status',
@@ -222,7 +259,7 @@ app.get('/api/status', async (_req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`status-ui listening on http://127.0.0.1:${port}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`status-ui listening on http://0.0.0.0:${port}`);
   console.log(`RPC targets: ${parseRpcUrls().join(', ')}`);
 });

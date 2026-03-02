@@ -80,6 +80,8 @@
   </head>
   <body>
     <h1>QikChain Devnet Status</h1>
+    <div class="muted"><strong>Local IP:</strong> <span id="localIP">-</span></div>
+    <div class="muted" style="margin-bottom:12px;"><strong>Public IP:</strong> <span id="publicIP">-</span></div>
 
     <div class="panel">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
@@ -100,6 +102,8 @@
       const overallBadge = document.getElementById('overallBadge');
       const overallReason = document.getElementById('overallReason');
       const timestamp = document.getElementById('timestamp');
+      const localIP = document.getElementById('localIP');
+      const publicIP = document.getElementById('publicIP');
       const summary = document.getElementById('summary');
       const nodeGrid = document.getElementById('nodeGrid');
 
@@ -150,6 +154,8 @@
           setOverall(Boolean(data.overall && data.overall.healthy));
           overallReason.textContent = data.overall?.reason || '-';
           timestamp.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
+          localIP.textContent = data.localIP || '-';
+          publicIP.textContent = data.publicIP || '-';
 
           renderSummary(data.summary || {});
           renderNodes(data.nodes || []);
