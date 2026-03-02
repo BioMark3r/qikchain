@@ -111,8 +111,8 @@ reset_net() {
       FORCE=1 CLEAN_PORTS=1 bash "$stop_script" >/dev/null 2>&1 || true
     fi
 
-    log "RESET=1: wiping network dir: $NET_DIR"
-    rm -rf "$NET_DIR"
+    log "RESET=1: wiping network dir: $DATA_ROOT"
+    rm -rf "$DATA_ROOT"
 
     log "RESET=1: removing generated chain artifacts"
     rm -f "$GENESIS_OUT" "$CHAIN_SPLIT_OUT" "$GENESIS_ETH_OUT" "$METADATA_OUT"
@@ -234,6 +234,11 @@ init_secrets_if_needed() {
 }
 
 build_genesis() {
+  if [[ -f "$GENESIS_OUT" ]]; then
+    echo "Genesis already exists — skipping generation."
+    return 0
+  fi
+
   if [[ "$CONSENSUS" != "poa" && "$CONSENSUS" != "ibft" ]]; then
     log "WARNING: CONSENSUS=$CONSENSUS requested, but Phase 0 devnet genesis is forced to polygon-edge IBFT."
   fi

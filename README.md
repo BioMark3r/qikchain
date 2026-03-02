@@ -252,17 +252,39 @@ Scripts:
 make up
 ```
 
+### Devnet Startup
+
+Normal start:
+
+```bash
+make up
+```
+
+If `build/genesis.json` already exists, startup now reuses it and prints:
+
+```text
+Genesis already exists — skipping generation.
+```
+
+Reset chain:
+
+```bash
+make up RESET=1
+```
+
+When `RESET=1`, startup wipes prior chain state (`.data/`) and removes `build/genesis.json` before regenerating genesis artifacts.
+
 `make up` is idempotent when `build/genesis.json` is unchanged. If existing node data was initialized with a different genesis, startup fails fast with:
 
 ```text
 Genesis changed since this data dir was initialized.
-Run: RESET=1 make up
+Run: make up RESET=1
 ```
 
 Reset and rebuild devnet state when genesis inputs change:
 
 ```bash
-RESET=1 make up
+make up RESET=1
 ```
 
 ### Docker Compose devnet (4-node IBFT)
@@ -306,7 +328,7 @@ make docker-devnet-down RESET=1 # stop + remove volumes
 ### Start PoS
 
 ```bash
-RESET=1 make up CONSENSUS=pos
+make up RESET=1 CONSENSUS=pos
 ```
 
 ### Script configuration knobs

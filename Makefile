@@ -223,6 +223,9 @@ allocations-verify: build-qikchain
 
 up: build
 	@echo "==> Starting devnet (CONSENSUS=$(CONSENSUS))"
+	@if [ "$(RESET)" = "1" ]; then \
+		echo "RESET=1 detected — wiping previous chain data."; \
+	fi
 	CONSENSUS="$(CONSENSUS)" INSECURE_SECRETS="$(INSECURE_SECRETS)" RESET="$(RESET)" CHAIN_ID="$(CHAIN_ID)" ENV="$(ENV)" POS_DEPLOYMENTS="$(POS_DEPLOYMENTS)" \
 		bash "$(DEVNET_UP_SCRIPT)"
 
