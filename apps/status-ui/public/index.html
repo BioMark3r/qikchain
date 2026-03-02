@@ -3,92 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QikChain Devnet Status</title>
+    <title>QikChain Status</title>
     <style>
-      :root {
-        font-family: Arial, sans-serif;
-      }
-      body {
-        margin: 24px;
-        background: #f5f7fb;
-        color: #17202a;
-      }
-      .panel {
-        background: #fff;
-        border: 1px solid #e0e6ef;
-        border-radius: 10px;
-        padding: 16px;
-        margin-bottom: 16px;
-      }
-      .badge {
-        display: inline-block;
-        border-radius: 999px;
-        color: #fff;
-        font-size: 12px;
-        padding: 4px 10px;
-      }
-      .healthy {
-        background: #198754;
-      }
-      .degraded {
-        background: #dc3545;
-      }
-      .summary {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 10px;
-      }
-      .stat {
-        background: #f8fafc;
-        border: 1px solid #e5eaf1;
-        border-radius: 8px;
-        padding: 8px;
-      }
-      .node-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 10px;
-      }
-      .node-card {
-        background: #fff;
-        border: 1px solid #dde3ec;
-        border-radius: 10px;
-        padding: 12px;
-      }
-      .node-card.down {
-        border-color: #f3b8c0;
-      }
-      .node-title {
-        font-size: 13px;
-        word-break: break-all;
-        margin-bottom: 8px;
-      }
-      .kv {
-        font-size: 13px;
-        margin: 2px 0;
-      }
-      .error {
-        margin-top: 8px;
-        color: #b42332;
-        font-size: 12px;
-      }
-      .muted {
-        color: #6b7280;
-        font-size: 12px;
-      }
+      body { font-family: Arial, sans-serif; margin: 20px; background:#f5f7fb; color:#17202a; }
+      .panel { background:#fff; border:1px solid #e0e6ef; border-radius:10px; padding:14px; margin-bottom:14px; }
+      .badge { display:inline-block; padding:4px 10px; border-radius:999px; color:#fff; font-size:12px; }
+      .healthy { background:#198754; }
+      .degraded { background:#dc3545; }
+      .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; }
+      .stat { background:#f8fafc; border:1px solid #e5eaf1; border-radius:8px; padding:8px; }
+      .muted { color:#6b7280; font-size:12px; }
+      .nodes { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
+      .node { background:#fff; border:1px solid #dde3ec; border-radius:10px; padding:10px; }
+      .node.down { border-color:#f3b8c0; }
+      .error { color:#b42332; font-size:12px; margin-top:8px; }
+      .kv { font-size:13px; margin:2px 0; }
+      .rpc { word-break:break-all; font-size:13px; margin-bottom:6px; }
     </style>
   </head>
   <body>
-    <h1>QikChain Devnet Status</h1>
-    <div class="muted"><strong>Local IP:</strong> <span id="localIP">-</span></div>
-    <div class="muted" style="margin-bottom:12px;"><strong>Public IP:</strong> <span id="publicIP">-</span></div>
+    <h1>QikChain Status</h1>
 
     <div class="panel">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-        <div>
-          <strong>Overall:</strong>
-          <span id="overallBadge" class="badge degraded">Loading</span>
-        </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div><strong>Overall:</strong> <span id="overallBadge" class="badge degraded">Loading</span></div>
         <div class="muted" id="timestamp">-</div>
       </div>
       <div class="muted" id="overallReason">-</div>
@@ -96,53 +34,48 @@
 
     <div class="panel summary" id="summary"></div>
 
-    <div class="node-grid" id="nodeGrid"></div>
+    <div class="panel">
+      <strong>Nodes</strong>
+      <div class="nodes" id="nodes"></div>
+    </div>
 
     <script>
       const overallBadge = document.getElementById('overallBadge');
       const overallReason = document.getElementById('overallReason');
       const timestamp = document.getElementById('timestamp');
-      const localIP = document.getElementById('localIP');
-      const publicIP = document.getElementById('publicIP');
-      const summary = document.getElementById('summary');
-      const nodeGrid = document.getElementById('nodeGrid');
-
-      function setOverall(healthy) {
-        overallBadge.textContent = healthy ? 'Healthy' : 'Degraded';
-        overallBadge.className = `badge ${healthy ? 'healthy' : 'degraded'}`;
-      }
+      const summaryEl = document.getElementById('summary');
+      const nodesEl = document.getElementById('nodes');
 
       function renderSummary(data) {
+        const summary = data.summary || {};
         const items = [
-          ['Nodes Up', `${data.nodesUp}/${data.nodesTotal}`],
-          ['Nodes Sealing', `${data.nodesSealing}/${data.nodesTotal}`],
-          ['Max Block Head', data.maxBlockHead ?? '-'],
-          ['Chain ID', data.chainId ?? 'unknown'],
-          ['Total Peers', data.totalPeers ?? 'unknown'],
+          ['NodesUp / NodesTotal', `${summary.nodesUp ?? '-'} / ${summary.nodesTotal ?? '-'}`],
+          ['NodesSealing', summary.nodesSealing ?? '-'],
+          ['Max block', summary.maxBlockHead ?? '-'],
+          ['Chain ID', summary.chainId ?? 'unknown'],
+          ['readonlyProd', String(Boolean(data.readonlyProd))],
+          ['authEnabled', String(Boolean(data.authEnabled))],
         ];
 
-        summary.innerHTML = items
+        summaryEl.innerHTML = items
           .map(([label, value]) => `<div class="stat"><div class="muted">${label}</div><strong>${value}</strong></div>`)
           .join('');
       }
 
       function renderNodes(nodes) {
-        nodeGrid.innerHTML = nodes
-          .map((node) => {
-            const upText = node.up ? 'Up' : 'Down';
-            const sealingText = node.sealingHealthy ? 'Yes' : 'No';
-            return `
-              <div class="node-card ${node.up ? '' : 'down'}">
-                <div class="node-title"><strong>${node.rpc}</strong></div>
-                <div class="kv"><strong>Status:</strong> ${upText}</div>
-                <div class="kv"><strong>Head:</strong> ${node.blockHead2 ?? node.blockHead1 ?? '-'}</div>
-                <div class="kv"><strong>Sealing:</strong> ${sealingText}</div>
-                <div class="kv"><strong>Peers:</strong> ${node.peerCount ?? '-'}</div>
-                <div class="kv"><strong>Chain ID:</strong> ${node.chainId ?? '-'}</div>
-                ${node.error ? `<div class="error">${node.error}</div>` : ''}
-              </div>
-            `;
-          })
+        nodesEl.innerHTML = (nodes || [])
+          .map((node) => `
+            <div class="node ${node.up ? '' : 'down'}">
+              <div class="rpc"><strong>${node.rpc}</strong></div>
+              <div class="kv"><strong>up:</strong> ${String(Boolean(node.up))}</div>
+              <div class="kv"><strong>chainId:</strong> ${node.chainId ?? '-'}</div>
+              <div class="kv"><strong>peerCount:</strong> ${node.peerCount ?? '-'}</div>
+              <div class="kv"><strong>blockHead1:</strong> ${node.blockHead1 ?? '-'}</div>
+              <div class="kv"><strong>blockHead2:</strong> ${node.blockHead2 ?? '-'}</div>
+              <div class="kv"><strong>sealingHealthy:</strong> ${String(Boolean(node.sealingHealthy))}</div>
+              ${node.error ? `<div class="error">${node.error}</div>` : ''}
+            </div>
+          `)
           .join('');
       }
 
@@ -150,18 +83,19 @@
         try {
           const response = await fetch('/api/status');
           const data = await response.json();
+          const healthy = Boolean(data.overall && data.overall.healthy);
 
-          setOverall(Boolean(data.overall && data.overall.healthy));
+          overallBadge.textContent = healthy ? 'Healthy' : 'Degraded';
+          overallBadge.className = `badge ${healthy ? 'healthy' : 'degraded'}`;
           overallReason.textContent = data.overall?.reason || '-';
           timestamp.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
-          localIP.textContent = data.localIP || '-';
-          publicIP.textContent = data.publicIP || '-';
 
-          renderSummary(data.summary || {});
-          renderNodes(data.nodes || []);
-        } catch (error) {
-          setOverall(false);
-          overallReason.textContent = error.message;
+          renderSummary(data);
+          renderNodes(data.nodes);
+        } catch (_error) {
+          overallBadge.textContent = 'Error';
+          overallBadge.className = 'badge degraded';
+          overallReason.textContent = 'Failed to fetch /api/status';
         }
       }
 

@@ -365,13 +365,23 @@ JSON=1 LOGS=1 LOG_LINES=40 ./scripts/devnet-ibft4-status.sh | jq .
 
 ## Network Status UI
 
-The repository includes a tiny read-only status dashboard backed by the existing `qikchain` CLI.
+The repository includes a tiny status dashboard backed by the existing `qikchain` CLI.
 
-Start devnet and the UI:
+Dev example:
 
 ```bash
-make up
-RPC_URLS="http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548" make status-ui
+RPC_URLS="http://127.0.0.1:8545,http://127.0.0.1:8546" make status-ui
+```
+
+Prod example:
+
+```bash
+READONLY_PROD=1 \
+AUTH_USER=admin \
+AUTH_PASS=strongpassword \
+CACHE_MS=2000 \
+HOST=127.0.0.1 \
+make status-ui
 ```
 
 Then open:
@@ -382,9 +392,14 @@ http://127.0.0.1:8787
 
 Environment overrides:
 
-- `RPC_URLS` (default: `http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548` in `make status-ui`)
+- `RPC_URLS` (comma-separated list)
 - `RPC_URL` (single-endpoint fallback)
+- `CACHE_MS` (default: `1000`)
+- `READONLY_PROD` (`1` enables hardening mode)
+- `AUTH_USER` and `AUTH_PASS` (enable basic auth only when both are set)
+- `HOST` (default: `127.0.0.1` in readonly prod, otherwise `0.0.0.0`)
 - `PORT` (default: `8787`)
+
 
 ## Metrics
 
