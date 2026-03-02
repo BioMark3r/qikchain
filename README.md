@@ -238,6 +238,26 @@ PoS build example:
 
 ---
 
+## Devnet Management
+
+Use Make targets as a state-aware devnet manager:
+
+```bash
+make up
+make down
+make reset
+make status
+make logs
+```
+
+Notes:
+
+- `make up` is idempotent: it reuses existing `build/genesis.json` and skips regeneration when present.
+- `make up RESET=1` behaves like reset and wipes prior chain state + genesis before starting.
+- `make reset` stops devnet, removes `build/genesis.json` and `.data/`, then starts fresh.
+- `make status` returns success only when PID is alive *and* RPC health checks (`eth_blockNumber`) succeed.
+- `make logs` tails `.logs/devnet.log` (use `make logs-follow` to stream).
+
 ## Devnet: IBFT 4-node
 
 Scripts:
@@ -351,14 +371,13 @@ make up RESET=1 CONSENSUS=pos
 ### Stop
 
 ```bash
-./scripts/devnet-ibft4-stop.sh
+make down
 ```
 
 Options:
 
 ```bash
-FORCE=1 ./scripts/devnet-ibft4-stop.sh
-CLEAN_PORTS=1 ./scripts/devnet-ibft4-stop.sh
+make down
 ```
 
 ### Status
@@ -366,14 +385,14 @@ CLEAN_PORTS=1 ./scripts/devnet-ibft4-stop.sh
 Human mode:
 
 ```bash
-./scripts/devnet-ibft4-status.sh
+make status
 ```
 
 Tail logs:
 
 ```bash
-LOGS=1 LOG_LINES=80 ./scripts/devnet-ibft4-status.sh
-LOGS=1 FOLLOW=1 ./scripts/devnet-ibft4-status.sh
+make logs
+make logs-follow
 ```
 
 JSON mode (CI-friendly):
@@ -613,7 +632,7 @@ go build -o ./bin/qikchain ./cmd/qikchain
 Stop the devnet:
 
 ```bash
-./scripts/devnet-ibft4-stop.sh
+make down
 ```
 
 If something is still holding ports:

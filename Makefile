@@ -11,7 +11,14 @@ ROOT := $(patsubst %/,%,$(MAKEFILE_DIR))
 ROOT := $(strip $(ROOT))
 BIN_DIR := $(ROOT)/bin
 BUILD_DIR := $(ROOT)/build
-DATA_DIR := $(ROOT)/.data
+GENESIS_PATH := $(BUILD_DIR)/genesis.json
+DATA_ROOT := $(ROOT)/.data
+NET_DIR := $(DATA_ROOT)/ibft4
+LOG_DIR := $(ROOT)/.logs
+PID_DIR := $(ROOT)/.pids
+DEVNET_LOG := $(LOG_DIR)/devnet.log
+DEVNET_PID := $(PID_DIR)/devnet.pid
+DATA_DIR := $(DATA_ROOT)
 UI_DIR := apps/status-ui
 UI_STATE_DIR := $(DATA_DIR)/status-ui
 UI_PID := $(UI_STATE_DIR)/status-ui.pid
@@ -26,9 +33,11 @@ QIKCHAIN_BIN := $(BIN_DIR)/qikchain
 QIKCHAIND_BIN := $(BIN_DIR)/qikchaind
 POLYGON_EDGE_BIN := $(BIN_DIR)/polygon-edge
 
-DEVNET_UP_SCRIPT ?= ./scripts/devnet-ibft4.sh
-DEVNET_DOWN_SCRIPT ?= ./scripts/devnet-ibft4-stop.sh
-DEVNET_STATUS_SCRIPT := $(if $(wildcard ./scripts/devnet-ibft4-status.sh),./scripts/devnet-ibft4-status.sh,./scripts/devnet-ibft4-status)
+DEVNET_UP_SCRIPT ?= ./scripts/devnet/up.sh
+DEVNET_DOWN_SCRIPT ?= ./scripts/devnet/down.sh
+DEVNET_RESET_SCRIPT ?= ./scripts/devnet/reset.sh
+DEVNET_STATUS_SCRIPT ?= ./scripts/devnet/status.sh
+DEVNET_LOGS_SCRIPT ?= ./scripts/devnet/logs.sh
 
 CONSENSUS ?= poa
 INSECURE_SECRETS ?= 1
@@ -44,9 +53,9 @@ $(error ROOT appears malformed (multiple absolute paths detected): [$(ROOT)])
 endif
 
 
-.PHONY: help print-vars build build-qikchain build-txhelper build-qikchaind build-edge clean clean-data fmt test lint \
+.PHONY: help print-vars build build-qikchain build-txhelper build-qikchaind build-edge clean clean-data clean-pids clean-logs fmt test lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
-	up up-poa up-pos down status status-json logs logs-follow \
+	up up-poa up-pos down status logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
 	status-ui status-ui-logs status-ui-status stop-ui up-with-ui
 
@@ -54,7 +63,11 @@ print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
 	@printf 'BIN_DIR=[%s]\n' '$(BIN_DIR)'
 	@printf 'BUILD_DIR=[%s]\n' '$(BUILD_DIR)'
-	@printf 'DATA_DIR=[%s]\n' '$(DATA_DIR)'
+	@printf 'GENESIS_PATH=[%s]\n' '$(GENESIS_PATH)'
+	@printf 'DATA_ROOT=[%s]\n' '$(DATA_ROOT)'
+	@printf 'NET_DIR=[%s]\n' '$(NET_DIR)'
+	@printf 'LOG_DIR=[%s]\n' '$(LOG_DIR)'
+	@printf 'PID_DIR=[%s]\n' '$(PID_DIR)'
 	@printf 'CURDIR=[%s]\n' '$(CURDIR)'
 
 help:
@@ -64,6 +77,8 @@ help:
 	@echo "  make build            Build ./bin/qikchain, ./bin/qikchaind (and polygon-edge if available)"
 	@echo "  make clean            Remove build artifacts (set RESET=1 to also wipe .data/ibft4)"
 	@echo "  make clean-data       Remove .data/ibft4"
+	@echo "  make clean-pids       Remove devnet PID files"
+	@echo "  make clean-logs       Remove devnet log files"
 	@echo "  make fmt              Format Go code"
 	@echo "  make test             Run Go tests"
 	@echo "  make lint             Run go vet"
@@ -81,9 +96,8 @@ help:
 	@echo "  make up-pos           Start PoS devnet"
 	@echo "  make down             Stop devnet"
 	@echo "  make status           Human-readable status"
-	@echo "  make status-json      JSON status (pretty-printed with jq when installed)"
-	@echo "  make logs             Tail recent logs (LOGS=1)"
-	@echo "  make logs-follow      Stream logs (LOGS=1 FOLLOW=1)"
+	@echo "  make logs             Tail recent devnet log"
+	@echo "  make logs-follow      Stream devnet log"
 	@echo "  make docker-devnet-up   Start Docker devnet via docker compose"
 	@echo "  make docker-devnet-down Stop Docker devnet (set RESET=1 to remove volumes)"
 	@echo "  make docker-devnet-logs Follow Docker devnet logs"
@@ -95,14 +109,14 @@ help:
 	@echo ""
 	@echo "Convenience:"
 	@echo "  make reset            down + wipe data + up"
-	@echo "  make reset-poa        down + wipe data + up-poa"
-	@echo "  make reset-pos        down + wipe data + up-pos"
+	@echo "  make reset-poa        reset devnet as PoA"
+	@echo "  make reset-pos        reset devnet as PoS"
 	@echo "  make doctor           Show binary versions and listeners"
 	@echo ""
 	@echo "Common environment variables:"
 	@echo "  CONSENSUS=$(CONSENSUS)          # poa|pos"
 	@echo "  INSECURE_SECRETS=$(INSECURE_SECRETS)   # dev-only; do NOT use in production"
-	@echo "  RESET=$(RESET)                  # set to 1 to wipe .data/ibft4 in clean/up flows"
+	@echo "  RESET=$(RESET)                  # set to 1 to wipe chain state + genesis in up flow"
 	@echo "  CHAIN_ID=$(CHAIN_ID)"
 	@echo "  ENV=$(ENV)"
 	@echo "  POS_DEPLOYMENTS=$(POS_DEPLOYMENTS)"
@@ -110,7 +124,7 @@ help:
 	@echo "Examples:"
 	@echo "  make up"
 	@echo "  make reset-poa"
-	@echo "  make status-json"
+	@echo "  make status"
 	@echo ""
 	@echo "Notes:"
 	@echo "  - INSECURE_SECRETS is for local/dev usage only."
@@ -174,13 +188,21 @@ clean:
 	@echo "==> Cleaning build artifacts"
 	@rm -rf "$(BUILD_DIR)"
 	@if [ "$(RESET)" = "1" ]; then \
-		echo "==> RESET=1, removing $(DATA_DIR)/ibft4"; \
-		rm -rf "$(DATA_DIR)/ibft4"; \
+		echo "==> RESET=1, removing $(NET_DIR)"; \
+		rm -rf "$(NET_DIR)"; \
 	fi
 
 clean-data:
-	@echo "==> Removing $(DATA_DIR)/ibft4"
-	@rm -rf "$(DATA_DIR)/ibft4"
+	@echo "==> Removing $(NET_DIR)"
+	@rm -rf "$(NET_DIR)"
+
+clean-pids:
+	@echo "==> Removing $(PID_DIR)"
+	@rm -rf "$(PID_DIR)"
+
+clean-logs:
+	@echo "==> Removing $(LOG_DIR)"
+	@rm -rf "$(LOG_DIR)"
 
 fmt:
 	@echo "==> Formatting Go code"
@@ -223,10 +245,8 @@ allocations-verify: build-qikchain
 
 up: build
 	@echo "==> Starting devnet (CONSENSUS=$(CONSENSUS))"
-	@if [ "$(RESET)" = "1" ]; then \
-		echo "RESET=1 detected — wiping previous chain data."; \
-	fi
 	CONSENSUS="$(CONSENSUS)" INSECURE_SECRETS="$(INSECURE_SECRETS)" RESET="$(RESET)" CHAIN_ID="$(CHAIN_ID)" ENV="$(ENV)" POS_DEPLOYMENTS="$(POS_DEPLOYMENTS)" \
+		BUILD_DIR="$(BUILD_DIR)" GENESIS_PATH="$(GENESIS_PATH)" DATA_ROOT="$(DATA_ROOT)" NET_DIR="$(NET_DIR)" LOG_DIR="$(LOG_DIR)" PID_DIR="$(PID_DIR)" DEVNET_LOG="$(DEVNET_LOG)" DEVNET_PID="$(DEVNET_PID)" \
 		bash "$(DEVNET_UP_SCRIPT)"
 
 up-poa:
@@ -237,7 +257,7 @@ up-pos:
 
 down:
 	@echo "==> Stopping devnet"
-	bash "$(DEVNET_DOWN_SCRIPT)"
+	BUILD_DIR="$(BUILD_DIR)" GENESIS_PATH="$(GENESIS_PATH)" DATA_ROOT="$(DATA_ROOT)" NET_DIR="$(NET_DIR)" LOG_DIR="$(LOG_DIR)" PID_DIR="$(PID_DIR)" DEVNET_LOG="$(DEVNET_LOG)" DEVNET_PID="$(DEVNET_PID)" bash "$(DEVNET_DOWN_SCRIPT)"
 
 docker-devnet-up:
 	@echo "==> Starting Docker devnet"
@@ -257,26 +277,11 @@ docker-devnet-logs:
 
 status:
 	@echo "==> Devnet status"
-	bash "$(DEVNET_STATUS_SCRIPT)"
-
-status-json:
-	@echo "==> Devnet status (JSON)"
-	@if JSON=1 bash "$(DEVNET_STATUS_SCRIPT)" > /tmp/qikchain-status.json 2>/tmp/qikchain-status.err; then \
-		if command -v jq >/dev/null 2>&1; then \
-			jq . /tmp/qikchain-status.json; \
-		else \
-			echo "jq not found; printing raw JSON"; \
-			cat /tmp/qikchain-status.json; \
-		fi; \
-	else \
-		echo "status script failed; emitting fallback JSON"; \
-		msg=$$(tr '\n' ' ' </tmp/qikchain-status.err | sed 's/"/\\"/g'); \
-		echo "{\"ok\":false,\"error\":\"$$msg\"}"; \
-	fi
+	BUILD_DIR="$(BUILD_DIR)" GENESIS_PATH="$(GENESIS_PATH)" DATA_ROOT="$(DATA_ROOT)" NET_DIR="$(NET_DIR)" LOG_DIR="$(LOG_DIR)" PID_DIR="$(PID_DIR)" DEVNET_LOG="$(DEVNET_LOG)" DEVNET_PID="$(DEVNET_PID)" bash "$(DEVNET_STATUS_SCRIPT)"
 
 logs:
 	@echo "==> Recent devnet logs"
-	LOGS=1 bash "$(DEVNET_STATUS_SCRIPT)"
+	BUILD_DIR="$(BUILD_DIR)" GENESIS_PATH="$(GENESIS_PATH)" DATA_ROOT="$(DATA_ROOT)" NET_DIR="$(NET_DIR)" LOG_DIR="$(LOG_DIR)" PID_DIR="$(PID_DIR)" DEVNET_LOG="$(DEVNET_LOG)" DEVNET_PID="$(DEVNET_PID)" bash "$(DEVNET_LOGS_SCRIPT)"
 
 status-ui:
 	@echo "==> Starting status UI in background"
@@ -374,22 +379,16 @@ up-with-ui:
 
 logs-follow:
 	@echo "==> Following devnet logs"
-	LOGS=1 FOLLOW=1 bash "$(DEVNET_STATUS_SCRIPT)"
+	BUILD_DIR="$(BUILD_DIR)" GENESIS_PATH="$(GENESIS_PATH)" DATA_ROOT="$(DATA_ROOT)" NET_DIR="$(NET_DIR)" LOG_DIR="$(LOG_DIR)" PID_DIR="$(PID_DIR)" DEVNET_LOG="$(DEVNET_LOG)" DEVNET_PID="$(DEVNET_PID)" FOLLOW=1 bash "$(DEVNET_LOGS_SCRIPT)"
 
 reset:
-	@$(MAKE) down || true
-	@$(MAKE) clean-data
-	@$(MAKE) up
+	@BUILD_DIR="$(BUILD_DIR)" GENESIS_PATH="$(GENESIS_PATH)" DATA_ROOT="$(DATA_ROOT)" NET_DIR="$(NET_DIR)" LOG_DIR="$(LOG_DIR)" PID_DIR="$(PID_DIR)" DEVNET_LOG="$(DEVNET_LOG)" DEVNET_PID="$(DEVNET_PID)" CONSENSUS="$(CONSENSUS)" INSECURE_SECRETS="$(INSECURE_SECRETS)" CHAIN_ID="$(CHAIN_ID)" ENV="$(ENV)" POS_DEPLOYMENTS="$(POS_DEPLOYMENTS)" bash "$(DEVNET_RESET_SCRIPT)"
 
 reset-poa:
-	@$(MAKE) down || true
-	@$(MAKE) clean-data
-	@$(MAKE) up-poa
+	@$(MAKE) reset CONSENSUS=poa
 
 reset-pos:
-	@$(MAKE) down || true
-	@$(MAKE) clean-data
-	@$(MAKE) up-pos
+	@$(MAKE) reset CONSENSUS=pos
 
 doctor: build
 	@echo "==> QikChain doctor"
