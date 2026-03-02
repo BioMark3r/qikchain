@@ -400,6 +400,72 @@ Environment overrides:
 - `HOST` (default: `127.0.0.1` in readonly prod, otherwise `0.0.0.0`)
 - `PORT` (default: `8787`)
 
+Status API highlights:
+
+- `GET /api/status` returns cached status with summary fields including `minBlockHead`, `maxBlockHead`, and `headDivergence`.
+- `DIVERGENCE_WARN` (default: `3`) marks status degraded when at least 2 nodes are up and divergence exceeds the threshold.
+- `GET /healthz` reuses the same cache and returns `200` when healthy, otherwise `503`.
+
+Security and auth:
+
+- `AUTH_USER` + `AUTH_PASS` enables Basic Auth globally for `/`, `/api/status`, `/healthz`, and tx endpoints.
+- `READONLY_PROD=1` hardens output and defaults host to `127.0.0.1`.
+
+Transaction features (disabled by default):
+
+- Enable write actions only with:
+
+```bash
+ENABLE_TX=1
+TX_TOKEN=replace-with-strong-shared-secret
+```
+
+- All write endpoints require:
+  - Basic Auth (if configured)
+  - `X-TX-TOKEN: <TX_TOKEN>` header
+
+- Exposed status fields:
+  - `txEnabled` (`true` when `ENABLE_TX=1` and `TX_TOKEN` is set)
+  - `writeMode` (`enabled|disabled`)
+
+Safety limits:
+
+- JSON request body is limited to 16kb.
+- `TX_RATE_LIMIT_PER_MIN` (default: `10`) across all write endpoints.
+- `TX_MAX_VALUE_WEI` (default: `1000000000000000`, 0.001 ETH) for native transfers.
+- `RAW_TX_MAX_BYTES` (default: `8192`) for `/api/tx/submit-raw`.
+- `DEPLOY_GAS_CAP` (default: `2000000`) for test deploy.
+- `WAIT_FOR_RECEIPT=1` waits up to ~10s for a mined receipt in tx responses.
+
+Write endpoints:
+
+- `POST /api/tx/burn` sends 1 wei to `0x000000000000000000000000000000000000dEaD`.
+- `POST /api/tx/deploy-test` deploys a fixed minimal test contract bytecode.
+- `POST /api/tx/submit-raw` forwards a pre-signed raw transaction (no server-side signing).
+
+Examples:
+
+Burn:
+
+```bash
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json" \
+  -d '{}' http://127.0.0.1:8787/api/tx/burn
+```
+
+Deploy:
+
+```bash
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json" \
+  -d '{}' http://127.0.0.1:8787/api/tx/deploy-test
+```
+
+Raw:
+
+```bash
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json" \
+  -d '{"rawTx":"0x..."}' http://127.0.0.1:8787/api/tx/submit-raw
+```
+
 
 ## Metrics
 

@@ -19,6 +19,10 @@
       .error { color:#b42332; font-size:12px; margin-top:8px; }
       .kv { font-size:13px; margin:2px 0; }
       .rpc { word-break:break-all; font-size:13px; margin-bottom:6px; }
+      .warn { color:#b45309; font-weight:600; }
+      button { margin-right:8px; margin-top:8px; padding:8px 12px; }
+      textarea { width:100%; min-height:80px; margin-top:8px; }
+      pre { background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px; overflow:auto; }
     </style>
   </head>
   <body>
@@ -34,6 +38,21 @@
 
     <div class="panel summary" id="summary"></div>
 
+    <div class="panel" id="txPanel" style="display:none;">
+      <strong>Transaction Actions</strong>
+      <div class="muted">Browser UI does not collect TX_TOKEN. Use proxy/curl to inject <code>X-TX-TOKEN</code>.</div>
+      <div>
+        <button id="burnBtn">Send 1 wei to burn address</button>
+        <button id="deployBtn">Deploy test contract</button>
+      </div>
+      <details style="margin-top:8px;">
+        <summary>Advanced: submit raw signed tx</summary>
+        <textarea id="rawTxInput" placeholder="0x..."></textarea>
+        <button id="rawSubmitBtn">Submit raw tx</button>
+      </details>
+      <pre id="txResult">No transaction submitted yet.</pre>
+    </div>
+
     <div class="panel">
       <strong>Nodes</strong>
       <div class="nodes" id="nodes"></div>
@@ -45,20 +64,30 @@
       const timestamp = document.getElementById('timestamp');
       const summaryEl = document.getElementById('summary');
       const nodesEl = document.getElementById('nodes');
+      const txPanel = document.getElementById('txPanel');
+      const txResult = document.getElementById('txResult');
+      const rawTxInput = document.getElementById('rawTxInput');
+
+      let txEnabled = false;
 
       function renderSummary(data) {
         const summary = data.summary || {};
+        const divergence = Number(summary.headDivergence ?? 0);
+        const warn = divergence > 3;
         const items = [
           ['NodesUp / NodesTotal', `${summary.nodesUp ?? '-'} / ${summary.nodesTotal ?? '-'}`],
           ['NodesSealing', summary.nodesSealing ?? '-'],
+          ['Min block', summary.minBlockHead ?? '-'],
           ['Max block', summary.maxBlockHead ?? '-'],
+          ['Head divergence', `${divergence}${warn ? ' (warning)' : ''}`],
           ['Chain ID', summary.chainId ?? 'unknown'],
           ['readonlyProd', String(Boolean(data.readonlyProd))],
           ['authEnabled', String(Boolean(data.authEnabled))],
+          ['Tx features', data.writeMode || 'disabled'],
         ];
 
         summaryEl.innerHTML = items
-          .map(([label, value]) => `<div class="stat"><div class="muted">${label}</div><strong>${value}</strong></div>`)
+          .map(([label, value]) => `<div class="stat"><div class="muted">${label}</div><strong class="${label === 'Head divergence' && warn ? 'warn' : ''}">${value}</strong></div>`)
           .join('');
       }
 
@@ -79,6 +108,32 @@
           .join('');
       }
 
+      async function postTx(path, body) {
+        try {
+          const response = await fetch(path, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body || {}),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            if (response.status === 403) {
+              txResult.textContent = 'Tx requires X-TX-TOKEN and ENABLE_TX=1 on server.';
+              return;
+            }
+            txResult.textContent = `Error ${response.status}: ${payload.error || 'request failed'}`;
+            return;
+          }
+          txResult.textContent = JSON.stringify(payload, null, 2);
+        } catch (_error) {
+          txResult.textContent = 'Failed to submit transaction request.';
+        }
+      }
+
+      document.getElementById('burnBtn').addEventListener('click', () => postTx('/api/tx/burn', {}));
+      document.getElementById('deployBtn').addEventListener('click', () => postTx('/api/tx/deploy-test', {}));
+      document.getElementById('rawSubmitBtn').addEventListener('click', () => postTx('/api/tx/submit-raw', { rawTx: rawTxInput.value.trim() }));
+
       async function refresh() {
         try {
           const response = await fetch('/api/status');
@@ -89,6 +144,9 @@
           overallBadge.className = `badge ${healthy ? 'healthy' : 'degraded'}`;
           overallReason.textContent = data.overall?.reason || '-';
           timestamp.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
+
+          txEnabled = Boolean(data.txEnabled);
+          txPanel.style.display = txEnabled ? 'block' : 'none';
 
           renderSummary(data);
           renderNodes(data.nodes);
