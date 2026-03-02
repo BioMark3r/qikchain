@@ -35,7 +35,7 @@ POS_DEPLOYMENTS ?= build/deployments/pos.local.json
 ALLOCATIONS_FILE ?= config/allocations/$(ENV).json
 
 # Guard against ROOT being accidentally duplicated into multiple absolute paths
-ifneq ($(words $(filter /mnt/%,$(ROOT))),1)
+ifneq ($(words $(ROOT)),1)
 $(error ROOT appears malformed (multiple absolute paths detected): [$(ROOT)])
 endif
 
@@ -44,7 +44,7 @@ endif
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status status-json logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
-	status-ui up-with-ui
+	status-ui status-ui-logs stop-ui up-with-ui
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -84,6 +84,8 @@ help:
 	@echo "  make docker-devnet-down Stop Docker devnet (set RESET=1 to remove volumes)"
 	@echo "  make docker-devnet-logs Follow Docker devnet logs"
 	@echo "  make status-ui        Install and run the status UI (http://127.0.0.1:8787)"
+	@echo "  make status-ui-logs   Tail status UI logs"
+	@echo "  make stop-ui          Stop status UI background process"
 	@echo "  make up-with-ui       Start devnet in background, then run status UI"
 	@echo ""
 	@echo "Convenience:"
@@ -269,10 +271,49 @@ logs:
 	LOGS=1 bash "$(DEVNET_STATUS_SCRIPT)"
 
 status-ui:
-	@echo "==> Starting status UI"
-	@cd apps/status-ui; \
-	if [ ! -d node_modules ]; then npm install; fi; \
-	RPC_URLS="$${RPC_URLS:-http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548}" node server.js
+	@echo "==> Starting status UI in background"
+	@mkdir -p /tmp/qikchain
+	@pid_file=/tmp/qikchain/status-ui.pid; \
+	log_file=/tmp/qikchain/status-ui.log; \
+	if [ -f "$$pid_file" ] && kill -0 $$(cat "$$pid_file") >/dev/null 2>&1; then \
+		echo "status-ui already running (pid=$$(cat "$$pid_file"))"; \
+		echo "URL: http://127.0.0.1:8787"; \
+		echo "PID file: $$pid_file"; \
+		echo "Log file: $$log_file"; \
+		exit 0; \
+	fi; \
+	rm -f "$$pid_file"; \
+	(cd apps/status-ui; \
+		if [ ! -d node_modules ]; then npm install; fi; \
+		RPC_URLS="$${RPC_URLS:-http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548}" nohup node server.js >>"$$log_file" 2>&1 & \
+		echo $$! >"$$pid_file"); \
+	echo "URL: http://127.0.0.1:8787"; \
+	echo "PID file: $$pid_file"; \
+	echo "Log file: $$log_file"
+
+status-ui-logs:
+	@log_file=/tmp/qikchain/status-ui.log; \
+	if [ ! -f "$$log_file" ]; then \
+		echo "status-ui log file not found: $$log_file"; \
+		exit 1; \
+	fi; \
+	tail -f "$$log_file"
+
+stop-ui:
+	@echo "==> Stopping status UI"
+	@pid_file=/tmp/qikchain/status-ui.pid; \
+	if [ ! -f "$$pid_file" ]; then \
+		echo "status-ui is not running (missing $$pid_file)"; \
+		exit 0; \
+	fi; \
+	pid=$$(cat "$$pid_file"); \
+	if kill -0 "$$pid" >/dev/null 2>&1; then \
+		kill "$$pid"; \
+		echo "stopped status-ui (pid=$$pid)"; \
+	else \
+		echo "status-ui process $$pid not running"; \
+	fi; \
+	rm -f "$$pid_file"
 
 up-with-ui:
 	@echo "==> Starting devnet in background"
