@@ -6,30 +6,30 @@ const { execFile } = require('child_process');
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const readonlyProd = process.env.READONLY_PROD === '1';
+const readonly = process.env.READONLY === '1';
 const host = process.env.HOST || (readonlyProd ? '127.0.0.1' : '0.0.0.0');
 const cacheMs = Math.max(0, Number(process.env.CACHE_MS || 1000));
 const divergenceWarn = Math.max(0, Number(process.env.DIVERGENCE_WARN || 3));
 const txRateLimitPerMinBase = Math.max(1, Number(process.env.TX_RATE_LIMIT_PER_MIN || 10));
 const txRateLimitPerMin = readonlyProd ? Math.min(txRateLimitPerMinBase, 5) : txRateLimitPerMinBase;
-const txMaxValueWei = parsePositiveBigInt(process.env.TX_MAX_VALUE_WEI || '1000000000000000');
 const rawTxMaxBytesBase = Math.max(1, Number(process.env.RAW_TX_MAX_BYTES || 8192));
 const rawTxMaxBytes = readonlyProd ? Math.min(rawTxMaxBytesBase, 4096) : rawTxMaxBytesBase;
 const deployGasCap = Math.max(21000, Number(process.env.DEPLOY_GAS_CAP || 2000000));
-const waitForReceipt = process.env.WAIT_FOR_RECEIPT === '1';
 const repoRoot = path.resolve(__dirname, '..', '..');
 const cliPath = path.join(repoRoot, 'bin', 'qikchain');
 const txHelperPath = path.join(repoRoot, 'bin', 'txhelper');
 const COMMAND_TIMEOUT_MS = 3000;
 const TX_TIMEOUT_MS = 20000;
 const SEALING_DELAY_MS = 2000;
-const BURN_ADDRESS = '0x000000000000000000000000000000000000dEaD';
+const BURN_ADDRESS = process.env.BURN_ADDRESS || '0x000000000000000000000000000000000000dEaD';
 
 const authUser = process.env.AUTH_USER || '';
 const authPass = process.env.AUTH_PASS || '';
 const authEnabled = authUser.length > 0 && authPass.length > 0;
 
 const txToken = process.env.TX_TOKEN || '';
-const txEnabled = process.env.ENABLE_TX === '1' && txToken.length > 0;
+const txEnabled = txToken.length > 0;
+const txFromPrivateKey = process.env.TX_FROM_PRIVATE_KEY || '';
 
 const statusCache = {
   value: null,
@@ -37,14 +37,7 @@ const statusCache = {
   inFlight: null,
 };
 
-const txWindow = [];
-
-function parsePositiveBigInt(value) {
-  if (!/^\d+$/.test(String(value))) {
-    return BigInt(0);
-  }
-  return BigInt(value);
-}
+const txWindowsByIp = new Map();
 
 function parseRpcUrls() {
   const parsedRpcUrls = String(process.env.RPC_URLS || '')
@@ -189,7 +182,7 @@ async function checkNode(rpc) {
       node.blockHead2 > node.blockHead1;
 
     return node;
-  } catch (error) {
+  } catch (_error) {
     return {
       ...node,
       up: false,
@@ -337,58 +330,80 @@ function authMiddleware(req, res, next) {
   next();
 }
 
-function chooseRpc(rpc) {
+function chooseRpc(rpcUrl) {
   const configured = parseRpcUrls();
-  if (!rpc) {
+  if (!rpcUrl) {
     return configured[0];
   }
-  if (!configured.includes(rpc)) {
+  if (!configured.includes(rpcUrl)) {
     return null;
   }
-  return rpc;
+  return rpcUrl;
 }
 
-function txRateLimitOk() {
-  const now = Date.now();
-  while (txWindow.length > 0 && now - txWindow[0] >= 60 * 1000) {
-    txWindow.shift();
+function getTxRateWindowForIp(ip) {
+  const key = ip || 'unknown';
+  if (!txWindowsByIp.has(key)) {
+    txWindowsByIp.set(key, []);
   }
-  if (txWindow.length >= txRateLimitPerMin) {
+  return txWindowsByIp.get(key);
+}
+
+function txRateLimitOk(ip) {
+  const window = getTxRateWindowForIp(ip);
+  const now = Date.now();
+  while (window.length > 0 && now - window[0] >= 60 * 1000) {
+    window.shift();
+  }
+  if (window.length >= txRateLimitPerMin) {
     return false;
   }
-  txWindow.push(now);
+  window.push(now);
   return true;
 }
 
 function txGateMiddleware(req, res, next) {
+  if (readonly) {
+    res.status(403).json({ error: 'readonly' });
+    return;
+  }
+
   if (!txEnabled) {
-    res.status(403).json({ error: 'write actions disabled' });
+    res.status(503).json({ error: 'tx_disabled' });
     return;
   }
 
   const headerToken = String(req.headers['x-tx-token'] || '');
   if (!safeEqualStrings(headerToken, txToken)) {
-    res.status(403).json({ error: 'Tx requires X-TX-TOKEN' });
+    res.status(401).json({ error: 'unauthorized' });
     return;
   }
 
-  if (!txRateLimitOk()) {
-    res.status(429).json({ error: 'rate limit exceeded' });
+  if (!txRateLimitOk(req.ip)) {
+    res.status(429).json({ error: 'rate_limit' });
     return;
   }
 
   next();
 }
 
+function ensureFundingKey(res) {
+  if (txFromPrivateKey) {
+    return true;
+  }
+  res.status(503).json({ error: 'funding key not configured' });
+  return false;
+}
+
 app.use(authMiddleware);
-app.use(express.json({ limit: '16kb' }));
+app.use(express.json({ limit: '16kb', strict: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/status', async (_req, res) => {
   try {
     const data = await getCachedStatus();
     res.json(data);
-  } catch (error) {
+  } catch (_error) {
     res.json({
       timestamp: new Date().toISOString(),
       readonlyProd,
@@ -425,6 +440,10 @@ app.get('/api/status', async (_req, res) => {
   }
 });
 
+app.get('/api/config', (_req, res) => {
+  res.json({ readonly, txEnabled });
+});
+
 app.get('/healthz', async (_req, res) => {
   try {
     const status = await getCachedStatus();
@@ -442,82 +461,84 @@ app.get('/healthz', async (_req, res) => {
   }
 });
 
-app.post('/api/tx/burn', txGateMiddleware, async (req, res) => {
+app.post('/api/tx/send-wei', txGateMiddleware, async (req, res) => {
   try {
-    const rpc = chooseRpc(req.body?.rpc);
-    if (!rpc) {
-      res.status(400).json({ error: 'invalid rpc' });
+    if (!ensureFundingKey(res)) {
       return;
     }
-    if (BigInt(1) > txMaxValueWei) {
-      res.status(400).json({ error: 'value exceeds TX_MAX_VALUE_WEI' });
+    const rpcUrl = chooseRpc(req.body?.rpcUrl);
+    if (!rpcUrl) {
+      res.status(400).json({ error: 'invalid rpcUrl' });
       return;
     }
 
-    const args = ['--action', 'burn', '--rpc', rpc, '--to', BURN_ADDRESS, '--valueWei', '1'];
-    if (waitForReceipt) {
-      args.push('--waitReceipt');
-    }
-    const raw = await runTxHelper(args);
+    const raw = await runTxHelper(['--action', 'burn', '--rpc', rpcUrl, '--to', BURN_ADDRESS, '--valueWei', '1']);
     const parsed = JSON.parse(raw);
-    res.json({ ok: true, rpc: maskRpcUrl(rpc), to: BURN_ADDRESS, valueWei: '1', txHash: parsed.txHash, receiptStatus: parsed.receiptStatus ?? null, mined: Boolean(parsed.mined) });
+    res.json({ txHash: parsed.txHash });
   } catch (error) {
-    res.status(500).json({ error: sanitizeTxError(error.message || 'burn failed') });
+    res.status(500).json({ error: sanitizeTxError(error.message || 'send wei failed') });
   }
 });
 
-app.post('/api/tx/deploy-test', txGateMiddleware, async (req, res) => {
+app.post('/api/tx/deploy-test-contract', txGateMiddleware, async (req, res) => {
   try {
-    const rpc = chooseRpc(req.body?.rpc);
-    if (!rpc) {
-      res.status(400).json({ error: 'invalid rpc' });
+    if (!ensureFundingKey(res)) {
+      return;
+    }
+    const rpcUrl = chooseRpc(req.body?.rpcUrl);
+    if (!rpcUrl) {
+      res.status(400).json({ error: 'invalid rpcUrl' });
       return;
     }
 
-    const args = ['--action', 'deploy', '--rpc', rpc, '--deployGasCap', String(deployGasCap)];
-    if (waitForReceipt) {
-      args.push('--waitReceipt');
-    }
-    const raw = await runTxHelper(args);
+    const raw = await runTxHelper(['--action', 'deploy', '--rpc', rpcUrl, '--deployGasCap', String(deployGasCap), '--waitReceipt']);
     const parsed = JSON.parse(raw);
-    res.json({ ok: true, rpc: maskRpcUrl(rpc), txHash: parsed.txHash, contractAddress: parsed.contractAddress ?? null, receiptStatus: parsed.receiptStatus ?? null, mined: Boolean(parsed.mined) });
+    res.json({ txHash: parsed.txHash, contractAddress: parsed.contractAddress ?? null });
   } catch (error) {
     res.status(500).json({ error: sanitizeTxError(error.message || 'deploy failed') });
   }
 });
 
-app.post('/api/tx/submit-raw', txGateMiddleware, async (req, res) => {
+app.post('/api/tx/send-raw', txGateMiddleware, async (req, res) => {
   try {
-    const rpc = chooseRpc(req.body?.rpc);
-    if (!rpc) {
-      res.status(400).json({ error: 'invalid rpc' });
+    const rpcUrl = chooseRpc(req.body?.rpcUrl);
+    if (!rpcUrl) {
+      res.status(400).json({ error: 'invalid rpcUrl' });
       return;
     }
 
-    const rawTx = String(req.body?.rawTx || '').trim();
-    if (!/^0x[0-9a-fA-F]+$/.test(rawTx)) {
-      res.status(400).json({ error: 'rawTx must be 0x-prefixed hex' });
+    const rawTxHex = String(req.body?.rawTxHex || '').trim();
+    if (!/^0x[0-9a-fA-F]+$/.test(rawTxHex)) {
+      res.status(400).json({ error: 'rawTxHex must be 0x-prefixed hex' });
       return;
     }
-    if ((rawTx.length - 2) / 2 > rawTxMaxBytes) {
-      res.status(400).json({ error: 'rawTx exceeds RAW_TX_MAX_BYTES' });
+    if (rawTxHex.length < 12) {
+      res.status(400).json({ error: 'rawTxHex too short' });
+      return;
+    }
+    if ((rawTxHex.length - 2) / 2 > rawTxMaxBytes) {
+      res.status(400).json({ error: 'rawTxHex exceeds RAW_TX_MAX_BYTES' });
       return;
     }
 
-    const args = ['--action', 'submit-raw', '--rpc', rpc, '--rawTx', rawTx];
-    if (waitForReceipt) {
-      args.push('--waitReceipt');
-    }
-    const raw = await runTxHelper(args);
+    const raw = await runTxHelper(['--action', 'submit-raw', '--rpc', rpcUrl, '--rawTx', rawTxHex]);
     const parsed = JSON.parse(raw);
-    res.json({ ok: true, rpc: maskRpcUrl(rpc), txHash: parsed.txHash, receiptStatus: parsed.receiptStatus ?? null, mined: Boolean(parsed.mined) });
+    res.json({ txHash: parsed.txHash });
   } catch (error) {
     res.status(500).json({ error: sanitizeTxError(error.message || 'submit raw failed') });
   }
 });
 
+app.use((error, _req, res, next) => {
+  if (error instanceof SyntaxError && 'body' in error) {
+    res.status(400).json({ error: 'invalid_json' });
+    return;
+  }
+  next(error);
+});
+
 app.listen(port, host, () => {
   console.log(`status-ui listening on http://${host}:${port}`);
   console.log(`RPC targets: ${parseRpcUrls().join(', ')}`);
-  console.log(`readonlyProd=${readonlyProd} authEnabled=${authEnabled} cacheMs=${cacheMs} txEnabled=${txEnabled}`);
+  console.log(`readonlyProd=${readonlyProd} readonly=${readonly} authEnabled=${authEnabled} cacheMs=${cacheMs} txEnabled=${txEnabled}`);
 });
