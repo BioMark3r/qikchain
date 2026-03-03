@@ -24,8 +24,10 @@ UI_STATE_DIR := $(DATA_DIR)/status-ui
 UI_PID := $(UI_STATE_DIR)/status-ui.pid
 UI_LOG := $(UI_STATE_DIR)/status-ui.log
 FAUCET_DIR := tools/faucet
+FAUCET_RUN_SCRIPT := $(FAUCET_DIR)/run.sh
 FAUCET_PID := $(PID_DIR)/faucet.pid
 FAUCET_LOG := $(LOG_DIR)/faucet.log
+FAUCET_DEPS_STAMP := $(FAUCET_DIR)/node_modules/.installed.stamp
 WALLET_DIR := tools/wallet
 
 RPC_URL ?= http://127.0.0.1:8545
@@ -69,7 +71,7 @@ endif
 	up up-poa up-pos down status logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
 	status-ui status-ui-logs status-ui-status stop-ui up-with-ui \
-	faucet-up faucet-stop faucet-logs faucet-send wallet-new wallet-balance wallet-send
+	faucet-init faucet-up faucet-stop faucet-status faucet-restart faucet-url faucet-logs faucet-send wallet-new wallet-balance wallet-send
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -118,8 +120,12 @@ help:
 	@echo "  make status-ui-status Check status UI pid/process state"
 	@echo "  make stop-ui          Stop status UI background process"
 	@echo "  make up-with-ui       Start devnet in background, then run status UI"
+	@echo "  make faucet-init      Create .env.faucet template for local faucet config"
 	@echo "  make faucet-up        Start standalone faucet in background"
 	@echo "  make faucet-stop      Stop standalone faucet"
+	@echo "  make faucet-status    Check standalone faucet pid/process state"
+	@echo "  make faucet-restart   Restart standalone faucet"
+	@echo "  make faucet-url       Print local/LAN faucet URLs"
 	@echo "  make faucet-logs      Tail faucet logs"
 	@echo "  make faucet-send TO=0x...  Request funds from the faucet"
 	@echo "  make wallet-new [OUT=.secrets/wallet.json]"
@@ -405,11 +411,12 @@ up-with-ui:
 faucet-up:
 	@echo "==> Starting standalone faucet in background"
 	@mkdir -p "$(PID_DIR)" "$(LOG_DIR)"
+	@"$(FAUCET_RUN_SCRIPT)" validate
 	@if [ -f "$(FAUCET_PID)" ]; then \
 		pid=$$(cat "$(FAUCET_PID)"); \
 		if kill -0 "$$pid" >/dev/null 2>&1; then \
 			echo "faucet already running (pid=$$pid)"; \
-			echo "URL: $(FAUCET_URL)"; \
+			"$(FAUCET_RUN_SCRIPT)" url; \
 			echo "PID file: $(FAUCET_PID)"; \
 			echo "Log file: $(FAUCET_LOG)"; \
 			exit 0; \
@@ -417,23 +424,41 @@ faucet-up:
 		echo "Removing stale PID file: $(FAUCET_PID)"; \
 		rm -f "$(FAUCET_PID)"; \
 	fi
-	@if [ -f "$(FAUCET_DIR)/package-lock.json" ]; then \
-		npm --prefix "$(FAUCET_DIR)" ci; \
+	@if [ ! -d "$(FAUCET_DIR)/node_modules" ] || [ ! -f "$(FAUCET_DEPS_STAMP)" ] || { [ -f "$(FAUCET_DIR)/package-lock.json" ] && [ "$(FAUCET_DIR)/package-lock.json" -nt "$(FAUCET_DEPS_STAMP)" ]; }; then \
+		echo "==> Installing faucet dependencies"; \
+		if [ -f "$(FAUCET_DIR)/package-lock.json" ]; then \
+			npm --prefix "$(FAUCET_DIR)" ci; \
+		else \
+			npm --prefix "$(FAUCET_DIR)" install; \
+		fi; \
+		touch "$(FAUCET_DEPS_STAMP)"; \
 	else \
-		npm --prefix "$(FAUCET_DIR)" install; \
+		echo "==> Faucet dependencies already installed"; \
 	fi
-	@(cd "$(ROOT)" && nohup env FAUCET_HOST="$(FAUCET_HOST)" FAUCET_PORT="$(FAUCET_PORT)" FAUCET_RPC_URL="$(RPC_URL)" FAUCET_TOKEN="$(FAUCET_TOKEN)" FAUCET_PRIVATE_KEY="$${FAUCET_PRIVATE_KEY:-}" FAUCET_AMOUNT_WEI="$(FAUCET_AMOUNT_WEI)" node "$(FAUCET_DIR)/server.js" >>"$(FAUCET_LOG)" 2>&1 & echo $$! >"$(FAUCET_PID)")
-	@sleep 1
+	@(cd "$(ROOT)" && nohup "$(FAUCET_RUN_SCRIPT)" start >>"$(FAUCET_LOG)" 2>&1 & echo $$! >"$(FAUCET_PID)")
+	@sleep 1.5
 	@pid=$$(cat "$(FAUCET_PID)" 2>/dev/null || true); \
 	if [ -z "$$pid" ] || ! kill -0 "$$pid" >/dev/null 2>&1; then \
-		echo "faucet failed to start; check $(FAUCET_LOG)"; \
+		echo "faucet failed to start"; \
+		tail -n 30 "$(FAUCET_LOG)" 2>/dev/null || true; \
+		exit 1; \
+	fi; \
+	port="$$("$(FAUCET_RUN_SCRIPT)" port)"; \
+	if ! curl -fsS "http://127.0.0.1:$$port/health" >/dev/null; then \
+		echo "faucet started but health check failed at http://127.0.0.1:$$port/health"; \
+		tail -n 30 "$(FAUCET_LOG)" 2>/dev/null || true; \
 		exit 1; \
 	fi; \
 	echo "faucet running (pid=$$pid)"; \
-	echo "URL: $(FAUCET_URL)"; \
-	echo "Health check: curl -fsS $(FAUCET_URL)/health"; \
+	"$(FAUCET_RUN_SCRIPT)" url; \
+	echo "Health check: curl -fsS http://127.0.0.1:$$port/health"; \
 	echo "Send funds: make faucet-send TO=0x..."; \
 	echo "Log file: $(FAUCET_LOG)"
+
+faucet-init:
+	@echo "==> Initializing faucet environment"
+	@"$(FAUCET_RUN_SCRIPT)" init
+
 
 faucet-stop:
 	@echo "==> Stopping standalone faucet"
@@ -442,7 +467,7 @@ faucet-stop:
 		exit 0; \
 	fi; \
 	pid=$$(cat "$(FAUCET_PID)"); \
-	if kill -0 "$$pid" >/dev/null 2>&1; then \
+	if [ -n "$$pid" ] && kill -0 "$$pid" >/dev/null 2>&1; then \
 		kill "$$pid"; \
 		i=0; \
 		while kill -0 "$$pid" >/dev/null 2>&1 && [ $$i -lt 30 ]; do \
@@ -455,9 +480,36 @@ faucet-stop:
 		fi; \
 		echo "stopped faucet (pid=$$pid)"; \
 	else \
-		echo "faucet process $$pid not running"; \
+		echo "faucet PID file existed but process $$pid was not running; cleaning up PID file"; \
 	fi; \
 	rm -f "$(FAUCET_PID)"
+
+faucet-status:
+	@if [ ! -f "$(FAUCET_PID)" ]; then \
+		echo "faucet is not running"; \
+		echo "Run: make faucet-up"; \
+		exit 0; \
+	fi; \
+	pid=$$(cat "$(FAUCET_PID)"); \
+	if [ -n "$$pid" ] && kill -0 "$$pid" >/dev/null 2>&1; then \
+		echo "faucet is running (pid=$$pid)"; \
+		$(MAKE) --no-print-directory faucet-url; \
+	else \
+		echo "faucet is not running (stale PID $$pid)"; \
+		echo "Run: make faucet-up"; \
+	fi
+
+faucet-restart:
+	@$(MAKE) --no-print-directory faucet-stop
+	@$(MAKE) --no-print-directory faucet-up
+
+faucet-url:
+	@port="$$("$(FAUCET_RUN_SCRIPT)" port)"; \
+	echo "FAUCET_URL=http://127.0.0.1:$$port"; \
+	local_ip="$$(hostname -I 2>/dev/null | awk '{print $$1}')"; \
+	if [ -n "$$local_ip" ]; then \
+		echo "LAN_URL=http://$$local_ip:$$port"; \
+	fi
 
 faucet-logs:
 	@if [ ! -f "$(FAUCET_LOG)" ]; then \
@@ -468,12 +520,13 @@ faucet-logs:
 
 faucet-send:
 	@to="$${TO:-}"; \
+	port="$$("$(FAUCET_RUN_SCRIPT)" port)"; \
 	if [ -z "$$to" ]; then \
 		echo "usage: make faucet-send TO=0x..."; \
 		exit 1; \
 	fi; \
-	curl -fsS -H "X-FAUCET-TOKEN: $(FAUCET_TOKEN)" -H 'content-type: application/json' \
-		-d "{\"to\":\"$$to\"}" "$(FAUCET_URL)/faucet"; \
+	curl -fsS -H "X-FAUCET-TOKEN: $${FAUCET_TOKEN:-$(FAUCET_TOKEN)}" -H 'content-type: application/json' \
+		-d "{\"to\":\"$$to\"}" "http://127.0.0.1:$$port/faucet"; \
 	echo
 
 wallet-new:

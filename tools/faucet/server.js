@@ -4,17 +4,17 @@ const { ethers } = require('ethers');
 
 const HOST = process.env.FAUCET_HOST || '0.0.0.0';
 const PORT = Number(process.env.FAUCET_PORT || 8787);
-const RPC_URL = process.env.FAUCET_RPC_URL || 'http://127.0.0.1:8545';
+const RPC_URL = process.env.FAUCET_RPC_URL || process.env.RPC_URL || 'http://127.0.0.1:8545';
 const TOKEN = process.env.FAUCET_TOKEN;
 const PRIVATE_KEY_RAW = process.env.FAUCET_PRIVATE_KEY;
 const AMOUNT_WEI = process.env.FAUCET_AMOUNT_WEI || '100000000000000000';
 
 if (!TOKEN) {
-  console.error('FAUCET_TOKEN is required');
+  console.error('FAUCET_TOKEN is required. Set it in .env.faucet or export FAUCET_TOKEN=...');
   process.exit(1);
 }
 if (!PRIVATE_KEY_RAW) {
-  console.error('FAUCET_PRIVATE_KEY is required');
+  console.error('FAUCET_PRIVATE_KEY is required. Set it in .env.faucet or export FAUCET_PRIVATE_KEY=...');
   process.exit(1);
 }
 
@@ -168,7 +168,23 @@ app.get('/status/:txHash', async (req, res) => {
   }
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`faucet listening on http://${HOST}:${PORT}`);
-  console.log(`faucet signer address: ${wallet.address}`);
-});
+async function startupDiagnostics() {
+  try {
+    const [network, balanceWei] = await Promise.all([
+      provider.getNetwork(),
+      provider.getBalance(wallet.address),
+    ]);
+
+    console.log(`faucet listening on http://${HOST}:${PORT}`);
+    console.log(`faucet chainId: ${Number(network.chainId)}`);
+    console.log(`faucet signer address: ${wallet.address}`);
+    console.log(`faucet signer balance: ${ethers.formatEther(balanceWei)} ETH`);
+
+    app.listen(PORT, HOST);
+  } catch (err) {
+    console.error(`Failed to reach faucet RPC at ${RPC_URL}: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+void startupDiagnostics();
