@@ -18,6 +18,7 @@ QikChain is a Polygon Edge–based EVM chain with a custom Go CLI for determinis
 - [Devnet: IBFT 4-node](#devnet-ibft-4-node)
 - [Metrics](#metrics)
 - [Network Status UI](#network-status-ui)
+- [Wallet + Faucet (Devnet)](#wallet--faucet-devnet)
 - [CI / Health Checks](#ci--health-checks)
 - [Troubleshooting](#troubleshooting)
 - [Repo Layout](#repo-layout)
@@ -420,7 +421,7 @@ make status-ui
 - Runs the server in the background with `nohup`
 - Writes process state to `.data/status-ui/status-ui.pid`
 - Writes logs to `.data/status-ui/status-ui.log`
-- Defaults to `HOST=0.0.0.0` and `PORT=8787` (unless overridden)
+- Defaults to `HOST=0.0.0.0` and `PORT=8788` (unless overridden)
 - Calls `http://127.0.0.1:<PORT>/api/status` and prints detected `localIP` / `publicIP` URLs when available
 - Is idempotent (if already running, it reports the existing process and exits)
 
@@ -431,7 +432,7 @@ Examples:
 RPC_URLS="http://127.0.0.1:8545,http://127.0.0.1:8546" make status-ui
 
 # bind loopback only
-HOST=127.0.0.1 PORT=8787 make status-ui
+HOST=127.0.0.1 PORT=8788 make status-ui
 
 # hardened mode
 READONLY_PROD=1 \
@@ -458,7 +459,7 @@ Environment overrides:
 - `READONLY_PROD` (`1` enables hardening mode)
 - `AUTH_USER` and `AUTH_PASS` (enable basic auth only when both are set)
 - `HOST` (default: `127.0.0.1` in readonly prod, otherwise `0.0.0.0`)
-- `PORT` (default: `8787`)
+- `PORT` (default: `8788`)
 
 Security note:
 
@@ -524,19 +525,19 @@ Examples:
 Send 1 wei:
 
 ```bash
-curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8787/api/tx/send-wei
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8788/api/tx/send-wei
 ```
 
 Deploy test contract:
 
 ```bash
-curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8787/api/tx/deploy-test-contract
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8788/api/tx/deploy-test-contract
 ```
 
 Submit raw transaction:
 
 ```bash
-curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rawTxHex":"0x...","rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8787/api/tx/send-raw
+curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rawTxHex":"0x...","rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8788/api/tx/send-raw
 ```
 
 
@@ -556,6 +557,77 @@ Devnet ports:
 - node4: http://127.0.0.1:9093/metrics
 
 ---
+
+---
+
+## Wallet + Faucet (Devnet)
+
+Use the standalone faucet and wallet CLI helpers to speed up devnet testing.
+
+> The faucet listens on its own port (`8787` by default), separate from the status UI (`8788` default).
+
+Defaults used by `Makefile`:
+
+- `RPC_URL=http://127.0.0.1:8545`
+- `FAUCET_HOST=0.0.0.0`
+- `FAUCET_PORT=8787`
+- `FAUCET_URL=http://127.0.0.1:8787`
+- `FAUCET_AMOUNT_WEI=100000000000000000` (0.1 ETH)
+- `FAUCET_TOKEN=devtoken-change-me`
+
+For safety, **override `FAUCET_TOKEN`** instead of using the default value.
+
+Start chain (existing flow):
+
+```bash
+make up
+```
+
+Start faucet:
+
+```bash
+export FAUCET_PRIVATE_KEY=...
+export FAUCET_TOKEN=...
+make faucet-up
+```
+
+Create wallet:
+
+```bash
+make wallet-new
+```
+
+Fund wallet:
+
+```bash
+make faucet-send TO=0x...
+```
+
+Check balance:
+
+```bash
+make wallet-balance ADDRESS=0x...
+```
+
+Send transaction:
+
+```bash
+make wallet-send FROM_PK=... TO=0x... VALUE_WEI=1
+```
+
+Prefunding note:
+
+If your chain is frequently reset, either:
+
+- Prefund the faucet address in genesis alloc, or
+- Transfer funds to the faucet signer from a validator after boot.
+
+Additional helpers:
+
+- `make faucet-stop`
+- `make faucet-logs`
+- `make wallet-new OUT=.secrets/another-wallet.json`
+
 
 ## CI / Health Checks
 

@@ -1,0 +1,14 @@
+{
+  "name": "qikchain-faucet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone devnet faucet service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.2",
+    "express": "^4.19.2"
+  }
+}
