@@ -23,6 +23,17 @@ UI_DIR := apps/status-ui
 UI_STATE_DIR := $(DATA_DIR)/status-ui
 UI_PID := $(UI_STATE_DIR)/status-ui.pid
 UI_LOG := $(UI_STATE_DIR)/status-ui.log
+FAUCET_DIR := tools/faucet
+FAUCET_PID := $(PID_DIR)/faucet.pid
+FAUCET_LOG := $(LOG_DIR)/faucet.log
+WALLET_DIR := tools/wallet
+
+RPC_URL ?= http://127.0.0.1:8545
+FAUCET_PORT ?= 8787
+FAUCET_HOST ?= 0.0.0.0
+FAUCET_URL ?= http://127.0.0.1:$(FAUCET_PORT)
+FAUCET_TOKEN ?= devtoken-change-me
+FAUCET_AMOUNT_WEI ?= 100000000000000000
 
 BUILD_TARGETS := build-qikchain
 ifneq ($(wildcard cmd/qikchaind),)
@@ -57,7 +68,8 @@ endif
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
-	status-ui status-ui-logs status-ui-status stop-ui up-with-ui
+	status-ui status-ui-logs status-ui-status stop-ui up-with-ui \
+	faucet-up faucet-stop faucet-logs faucet-send wallet-new wallet-balance wallet-send
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -101,11 +113,18 @@ help:
 	@echo "  make docker-devnet-up   Start Docker devnet via docker compose"
 	@echo "  make docker-devnet-down Stop Docker devnet (set RESET=1 to remove volumes)"
 	@echo "  make docker-devnet-logs Follow Docker devnet logs"
-	@echo "  make status-ui        Install and run the status UI in background (default: HOST=0.0.0.0 PORT=8787)"
+	@echo "  make status-ui        Install and run the status UI in background (default: HOST=0.0.0.0 PORT=8788)"
 	@echo "  make status-ui-logs   Tail status UI logs"
 	@echo "  make status-ui-status Check status UI pid/process state"
 	@echo "  make stop-ui          Stop status UI background process"
 	@echo "  make up-with-ui       Start devnet in background, then run status UI"
+	@echo "  make faucet-up        Start standalone faucet in background"
+	@echo "  make faucet-stop      Stop standalone faucet"
+	@echo "  make faucet-logs      Tail faucet logs"
+	@echo "  make faucet-send TO=0x...  Request funds from the faucet"
+	@echo "  make wallet-new [OUT=.secrets/wallet.json]"
+	@echo "  make wallet-balance ADDRESS=0x... [RPC_URL=http://127.0.0.1:8545]"
+	@echo "  make wallet-send FROM_PK=... TO=0x... VALUE_WEI=... [RPC_URL=http://127.0.0.1:8545]"
 	@echo ""
 	@echo "Convenience:"
 	@echo "  make reset            down + wipe data + up"
@@ -120,6 +139,12 @@ help:
 	@echo "  CHAIN_ID=$(CHAIN_ID)"
 	@echo "  ENV=$(ENV)"
 	@echo "  POS_DEPLOYMENTS=$(POS_DEPLOYMENTS)"
+	@echo "  RPC_URL=$(RPC_URL)"
+	@echo "  FAUCET_HOST=$(FAUCET_HOST)"
+	@echo "  FAUCET_PORT=$(FAUCET_PORT)"
+	@echo "  FAUCET_URL=$(FAUCET_URL)"
+	@echo "  FAUCET_TOKEN=$(FAUCET_TOKEN)"
+	@echo "  FAUCET_AMOUNT_WEI=$(FAUCET_AMOUNT_WEI)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make up"
@@ -287,7 +312,7 @@ status-ui:
 	@echo "==> Starting status UI in background"
 	@mkdir -p "$(UI_STATE_DIR)"
 	@host="$${HOST:-0.0.0.0}"; \
-	port="$${PORT:-8787}"; \
+	port="$${PORT:-8788}"; \
 	api_base="http://127.0.0.1:$$port"; \
 	if [ -f "$(UI_PID)" ]; then \
 		pid=$$(cat "$(UI_PID)"); \
@@ -376,6 +401,116 @@ up-with-ui:
 	@$(MAKE) up >/tmp/qikchain-up.log 2>&1 &
 	@echo "==> Devnet logs: /tmp/qikchain-up.log"
 	@$(MAKE) status-ui
+
+faucet-up:
+	@echo "==> Starting standalone faucet in background"
+	@mkdir -p "$(PID_DIR)" "$(LOG_DIR)"
+	@if [ -f "$(FAUCET_PID)" ]; then \
+		pid=$$(cat "$(FAUCET_PID)"); \
+		if kill -0 "$$pid" >/dev/null 2>&1; then \
+			echo "faucet already running (pid=$$pid)"; \
+			echo "URL: $(FAUCET_URL)"; \
+			echo "PID file: $(FAUCET_PID)"; \
+			echo "Log file: $(FAUCET_LOG)"; \
+			exit 0; \
+		fi; \
+		echo "Removing stale PID file: $(FAUCET_PID)"; \
+		rm -f "$(FAUCET_PID)"; \
+	fi
+	@if [ -f "$(FAUCET_DIR)/package-lock.json" ]; then \
+		npm --prefix "$(FAUCET_DIR)" ci; \
+	else \
+		npm --prefix "$(FAUCET_DIR)" install; \
+	fi
+	@(cd "$(ROOT)" && nohup env FAUCET_HOST="$(FAUCET_HOST)" FAUCET_PORT="$(FAUCET_PORT)" FAUCET_RPC_URL="$(RPC_URL)" FAUCET_TOKEN="$(FAUCET_TOKEN)" FAUCET_PRIVATE_KEY="$${FAUCET_PRIVATE_KEY:-}" FAUCET_AMOUNT_WEI="$(FAUCET_AMOUNT_WEI)" node "$(FAUCET_DIR)/server.js" >>"$(FAUCET_LOG)" 2>&1 & echo $$! >"$(FAUCET_PID)")
+	@sleep 1
+	@pid=$$(cat "$(FAUCET_PID)" 2>/dev/null || true); \
+	if [ -z "$$pid" ] || ! kill -0 "$$pid" >/dev/null 2>&1; then \
+		echo "faucet failed to start; check $(FAUCET_LOG)"; \
+		exit 1; \
+	fi; \
+	echo "faucet running (pid=$$pid)"; \
+	echo "URL: $(FAUCET_URL)"; \
+	echo "Health check: curl -fsS $(FAUCET_URL)/health"; \
+	echo "Send funds: make faucet-send TO=0x..."; \
+	echo "Log file: $(FAUCET_LOG)"
+
+faucet-stop:
+	@echo "==> Stopping standalone faucet"
+	@if [ ! -f "$(FAUCET_PID)" ]; then \
+		echo "faucet is not running (missing $(FAUCET_PID))"; \
+		exit 0; \
+	fi; \
+	pid=$$(cat "$(FAUCET_PID)"); \
+	if kill -0 "$$pid" >/dev/null 2>&1; then \
+		kill "$$pid"; \
+		i=0; \
+		while kill -0 "$$pid" >/dev/null 2>&1 && [ $$i -lt 30 ]; do \
+			sleep 0.1; \
+			i=$$((i + 1)); \
+		done; \
+		if kill -0 "$$pid" >/dev/null 2>&1; then \
+			echo "faucet did not stop in time; sending SIGKILL to $$pid"; \
+			kill -9 "$$pid" >/dev/null 2>&1 || true; \
+		fi; \
+		echo "stopped faucet (pid=$$pid)"; \
+	else \
+		echo "faucet process $$pid not running"; \
+	fi; \
+	rm -f "$(FAUCET_PID)"
+
+faucet-logs:
+	@if [ ! -f "$(FAUCET_LOG)" ]; then \
+		echo "faucet log file not found: $(FAUCET_LOG)"; \
+		exit 1; \
+	fi; \
+	tail -f "$(FAUCET_LOG)"
+
+faucet-send:
+	@to="$${TO:-}"; \
+	if [ -z "$$to" ]; then \
+		echo "usage: make faucet-send TO=0x..."; \
+		exit 1; \
+	fi; \
+	curl -fsS -H "X-FAUCET-TOKEN: $(FAUCET_TOKEN)" -H 'content-type: application/json' \
+		-d "{\"to\":\"$$to\"}" "$(FAUCET_URL)/faucet"; \
+	echo
+
+wallet-new:
+	@mkdir -p "$(ROOT)/.secrets"
+	@out="$${OUT:-$(ROOT)/.secrets/wallet.json}"; \
+	if [ -f "$(WALLET_DIR)/package-lock.json" ]; then \
+		npm --prefix "$(WALLET_DIR)" ci >/dev/null; \
+	else \
+		npm --prefix "$(WALLET_DIR)" install >/dev/null; \
+	fi; \
+	node "$(WALLET_DIR)/new.js" --out "$$out"
+
+wallet-balance:
+	@address="$${ADDRESS:-}"; \
+	if [ -z "$$address" ]; then \
+		echo "usage: make wallet-balance ADDRESS=0x..."; \
+		exit 1; \
+	fi; \
+	if [ -f "$(WALLET_DIR)/package-lock.json" ]; then \
+		npm --prefix "$(WALLET_DIR)" ci >/dev/null; \
+	else \
+		npm --prefix "$(WALLET_DIR)" install >/dev/null; \
+	fi; \
+	node "$(WALLET_DIR)/balance.js" --rpc "$(RPC_URL)" --address "$$address"
+
+wallet-send:
+	@from_pk="$${FROM_PK:-}"; to="$${TO:-}"; value_wei="$${VALUE_WEI:-}"; \
+	if [ -z "$$from_pk" ] || [ -z "$$to" ] || [ -z "$$value_wei" ]; then \
+		echo "usage: make wallet-send FROM_PK=... TO=0x... VALUE_WEI=..."; \
+		exit 1; \
+	fi; \
+	if [ -f "$(WALLET_DIR)/package-lock.json" ]; then \
+		npm --prefix "$(WALLET_DIR)" ci >/dev/null; \
+	else \
+		npm --prefix "$(WALLET_DIR)" install >/dev/null; \
+	fi; \
+	node "$(WALLET_DIR)/send.js" --rpc "$(RPC_URL)" --pk "$$from_pk" --to "$$to" --value-wei "$$value_wei"
 
 logs-follow:
 	@echo "==> Following devnet logs"

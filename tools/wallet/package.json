@@ -1,0 +1,14 @@
+{
+  "name": "qikchain-wallet-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLI wallet helpers for qikchain devnet",
+  "scripts": {
+    "new": "node new.js",
+    "balance": "node balance.js",
+    "send": "node send.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.2"
+  }
+}
