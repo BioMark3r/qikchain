@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QikChain Faucet</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>QikChain Faucet</h1>
+
+      <section class="card">
+        <h2>Wallet</h2>
+        <div class="row">
+          <button id="connect-btn" type="button">Connect MetaMask</button>
+          <span id="wallet-status" class="muted">Not connected</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Request Funds</h2>
+        <label for="to">To Address</label>
+        <div class="input-row">
+          <input id="to" type="text" placeholder="0x..." autocomplete="off" />
+          <button id="copy-to" type="button" class="secondary">Copy</button>
+        </div>
+
+        <label for="token">X-FAUCET-TOKEN</label>
+        <input id="token" type="password" placeholder="Enter faucet token" autocomplete="off" />
+
+        <button id="request-btn" type="button">Request Funds</button>
+      </section>
+
+      <section class="card">
+        <h2>Health</h2>
+        <pre id="health-panel" class="panel">Loading health...</pre>
+      </section>
+
+      <section class="card">
+        <h2>Result</h2>
+        <pre id="result-panel" class="panel">No request yet.</pre>
+        <div id="tx-actions" class="row hidden">
+          <button id="copy-tx" type="button" class="secondary">Copy tx hash</button>
+          <button id="check-status" type="button" class="secondary">Check status</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

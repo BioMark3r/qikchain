@@ -593,6 +593,21 @@ make faucet-init
 make faucet-up
 ```
 
+Open the faucet UI:
+
+```bash
+make faucet-ui
+```
+
+Then open one of the printed URLs in your browser (for example `http://127.0.0.1:8787/`).
+
+UI notes:
+
+- Put `FAUCET_TOKEN` in `.env.faucet`, start faucet, then paste the token into the UI.
+- The token is required on every request (`X-FAUCET-TOKEN`) and is stored in browser `localStorage` as `qik_faucet_token`.
+- Click **Connect MetaMask** to auto-fill the destination address.
+- You can create additional recipient addresses inside MetaMask and paste/select them in the UI.
+
 Common faucet commands:
 
 ```bash

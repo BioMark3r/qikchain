@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const path = require('path');
 const express = require('express');
 const { ethers } = require('ethers');
 
@@ -25,7 +26,7 @@ const PRIVATE_KEY = PRIVATE_KEY_RAW.startsWith('0x')
 let amountWei;
 try {
   amountWei = BigInt(AMOUNT_WEI);
-} catch (err) {
+} catch (_err) {
   console.error(`Invalid FAUCET_AMOUNT_WEI: ${AMOUNT_WEI}`);
   process.exit(1);
 }
@@ -45,6 +46,12 @@ const TO_LIMIT_MS = 5 * 60 * 1000;
 const app = express();
 app.use(express.json());
 
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
+app.get('/ui', (_req, res) => {
+  res.sendFile(path.join(publicDir, 'index.html'));
+});
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -62,7 +69,7 @@ function logRequest({ ip, to = '-', result, detail = '' }) {
   console.log(`[${nowIso()}] ip=${ip} to=${to} result=${result}${suffix}`);
 }
 
-function isRateLimited(map, key, windowMs) {
+function markAndCheckRateLimit(map, key, windowMs) {
   const now = Date.now();
   const previous = map.get(key);
   if (previous && now - previous < windowMs) {
@@ -70,6 +77,15 @@ function isRateLimited(map, key, windowMs) {
   }
   map.set(key, now);
   return 0;
+}
+
+function renderRateLimitResponse(res, delayMs) {
+  const retryAfterSec = Math.ceil(delayMs / 1000);
+  return res.status(429).json({
+    error: 'rate_limited',
+    message: `Try again in ${retryAfterSec}s`,
+    retryAfterSec,
+  });
 }
 
 setInterval(() => {
@@ -90,7 +106,11 @@ app.get('/health', async (_req, res) => {
     ]);
     res.json({ ok: true, chainId: Number(network.chainId), latestBlock });
   } catch (err) {
-    res.status(503).json({ ok: false, error: 'rpc_unreachable', message: err.message });
+    res.status(503).json({
+      ok: false,
+      error: 'rpc_unreachable',
+      message: err.message,
+    });
   }
 });
 
@@ -101,30 +121,32 @@ app.post('/faucet', async (req, res) => {
 
   if (!token || token !== TOKEN) {
     logRequest({ ip, to: String(toRaw || '-'), result: 'fail', detail: 'unauthorized' });
-    return res.status(401).json({ error: 'unauthorized' });
+    return res.status(401).json({
+      error: 'unauthorized',
+      message: 'Missing or invalid X-FAUCET-TOKEN',
+    });
   }
 
   if (!toRaw || typeof toRaw !== 'string' || !ethers.isAddress(toRaw)) {
     logRequest({ ip, to: String(toRaw || '-'), result: 'fail', detail: 'invalid_address' });
-    return res.status(400).json({ error: 'invalid_address' });
+    return res.status(400).json({
+      error: 'invalid_address',
+      message: 'Provide a valid destination address in `to`',
+    });
   }
 
   const to = ethers.getAddress(toRaw);
-  const ipDelay = isRateLimited(ipHits, ip, IP_LIMIT_MS);
+  const ipDelay = markAndCheckRateLimit(ipHits, ip, IP_LIMIT_MS);
   if (ipDelay > 0) {
     logRequest({ ip, to, result: 'fail', detail: 'ip_rate_limited' });
-    return res
-      .status(429)
-      .json({ error: 'rate_limited_ip', retryAfterSeconds: Math.ceil(ipDelay / 1000) });
+    return renderRateLimitResponse(res, ipDelay);
   }
 
-  const toDelay = isRateLimited(toHits, to, TO_LIMIT_MS);
+  const toDelay = markAndCheckRateLimit(toHits, to, TO_LIMIT_MS);
   if (toDelay > 0) {
     ipHits.delete(ip);
     logRequest({ ip, to, result: 'fail', detail: 'address_rate_limited' });
-    return res
-      .status(429)
-      .json({ error: 'rate_limited_address', retryAfterSeconds: Math.ceil(toDelay / 1000) });
+    return renderRateLimitResponse(res, toDelay);
   }
 
   try {
@@ -146,7 +168,10 @@ app.post('/faucet', async (req, res) => {
 app.get('/status/:txHash', async (req, res) => {
   const { txHash } = req.params;
   if (!txHash || !/^0x([A-Fa-f0-9]{64})$/.test(txHash)) {
-    return res.status(400).json({ error: 'invalid_tx_hash' });
+    return res.status(400).json({
+      error: 'invalid_tx_hash',
+      message: 'Transaction hash must be a 0x-prefixed 32-byte hex value',
+    });
   }
 
   try {
@@ -164,7 +189,10 @@ app.get('/status/:txHash', async (req, res) => {
       confirmations,
     });
   } catch (err) {
-    return res.status(503).json({ error: 'rpc_unreachable', message: err.message });
+    return res.status(503).json({
+      error: 'rpc_unreachable',
+      message: err.message,
+    });
   }
 });
 
@@ -176,8 +204,8 @@ async function startupDiagnostics() {
     ]);
 
     console.log(`faucet listening on http://${HOST}:${PORT}`);
-    console.log(`faucet chainId: ${Number(network.chainId)}`);
     console.log(`faucet signer address: ${wallet.address}`);
+    console.log(`faucet chainId: ${Number(network.chainId)}`);
     console.log(`faucet signer balance: ${ethers.formatEther(balanceWei)} ETH`);
 
     app.listen(PORT, HOST);
