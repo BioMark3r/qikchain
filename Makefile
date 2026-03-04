@@ -75,7 +75,7 @@ endif
 	up up-poa up-pos down status logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
 	status-ui status-ui-logs status-ui-status stop-ui up-with-ui \
-	faucet-init faucet-up faucet-stop faucet-status faucet-restart faucet-url faucet-logs faucet-send wallet-new wallet-balance wallet-send
+	faucet-init faucet-up faucet-stop faucet-status faucet-restart faucet-url faucet-ui faucet-logs faucet-send wallet-new wallet-balance wallet-send
 
 print-vars:
 	@printf 'ROOT=[%s]\n' '$(ROOT)'
@@ -135,6 +135,7 @@ help:
 	@echo "  make faucet-status    Check standalone faucet pid/process state"
 	@echo "  make faucet-restart   Restart standalone faucet"
 	@echo "  make faucet-url       Print local/LAN faucet URLs"
+	@echo "  make faucet-ui        Print faucet UI URLs (localhost + best-effort LAN)"
 	@echo "  make faucet-logs      Tail faucet logs"
 	@echo "  make faucet-send TO=0x...  Request funds from the faucet"
 	@echo "  make wallet-new [OUT=.secrets/wallet.json]"
@@ -506,8 +507,9 @@ faucet-up:
 		exit 1; \
 	fi; \
 	echo "faucet running (pid=$$pid)"; \
+	echo "Open Faucet UI: http://127.0.0.1:$$port/"; \
+	echo "Health: http://127.0.0.1:$$port/health"; \
 	"$(FAUCET_RUN_SCRIPT)" url; \
-	echo "Health check: curl -fsS http://127.0.0.1:$$port/health"; \
 	echo "Send funds: make faucet-send TO=0x..."; \
 	echo "Log file: $(FAUCET_LOG)"
 
@@ -566,6 +568,17 @@ faucet-url:
 	if [ -n "$$local_ip" ]; then \
 		echo "LAN_URL=http://$$local_ip:$$port"; \
 	fi
+
+faucet-ui:
+	@port="$$("$(FAUCET_RUN_SCRIPT)" port)"; \
+	echo "Open Faucet UI:"; \
+	echo "  http://127.0.0.1:$$port/"; \
+	local_ip="$$(hostname -I 2>/dev/null | awk '{print $$1}')"; \
+	if [ -n "$$local_ip" ]; then \
+		echo "  http://$$local_ip:$$port/"; \
+	fi; \
+	echo "Health:"; \
+	echo "  http://127.0.0.1:$$port/health"
 
 faucet-logs:
 	@if [ ! -f "$(FAUCET_LOG)" ]; then \
