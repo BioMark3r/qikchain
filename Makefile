@@ -142,6 +142,16 @@ help:
 	@echo "  make wallet-balance ADDRESS=0x... [RPC_URL=http://127.0.0.1:8545]"
 	@echo "  make wallet-send FROM_PK=... TO=0x... VALUE_WEI=... [RPC_URL=http://127.0.0.1:8545]"
 	@echo ""
+	@echo "PoS Contracts (Milestone 1):"
+	@echo "  make pos-deploy [RPC_URL=http://127.0.0.1:8545] PRIVATE_KEY=0x..."
+	@echo "  make pos-mint TO=0x... AMOUNT=... PRIVATE_KEY=0x..."
+	@echo "  make pos-register OPERATOR_PK=... MONIKER=... ENDPOINT=... NODE_ID_HEX=... BLS_PUBKEY_HEX=..."
+	@echo "  make pos-stake OPERATOR_PK=... AMOUNT=..."
+	@echo "  make pos-unstake OPERATOR_PK=... AMOUNT=..."
+	@echo "  make pos-withdraw OPERATOR_PK=... WITHDRAWAL_ID=..."
+	@echo "  make pos-snapshot EPOCH=... OPERATORS=0x...,0x... OWNER_PK=..."
+	@echo "  make pos-info"
+	@echo ""
 	@echo "Convenience:"
 	@echo "  make reset            down + wipe data + up"
 	@echo "  make reset-poa        reset devnet as PoA"
@@ -671,3 +681,87 @@ doctor: build
 	else \
 		echo "Neither ss nor lsof is available."; \
 	fi
+
+FOUNDRY_FORGE ?= forge
+FOUNDRY_CAST ?= cast
+POS_ADDRESSES_FILE ?= .data/pos/addresses.json
+POS_MIN_STAKE ?= 1000000000000000000000
+POS_UNBONDING_BLOCKS ?= 200
+POS_EPOCH_LENGTH_BLOCKS ?= 100
+
+.PHONY: pos-deploy pos-mint pos-register pos-stake pos-unstake pos-withdraw pos-snapshot pos-info
+
+pos-deploy:
+	@mkdir -p .data/pos
+	@PRIVATE_KEY="$${PRIVATE_KEY:?set PRIVATE_KEY in env}" \
+	RPC_URL="$(RPC_URL)" \
+	POS_ADDRESSES_FILE="$(POS_ADDRESSES_FILE)" \
+	POS_MIN_STAKE="$(POS_MIN_STAKE)" \
+	POS_UNBONDING_BLOCKS="$(POS_UNBONDING_BLOCKS)" \
+	POS_EPOCH_LENGTH_BLOCKS="$(POS_EPOCH_LENGTH_BLOCKS)" \
+	$(FOUNDRY_FORGE) script script/pos/DeployPos.s.sol:DeployPos --rpc-url "$(RPC_URL)" --broadcast
+
+pos-mint:
+	@to="$${TO:?usage: make pos-mint TO=0x... AMOUNT=...}"; \
+	amount="$${AMOUNT:?usage: make pos-mint TO=0x... AMOUNT=...}"; \
+	token="$${POS_TOKEN:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["token"])')}"; \
+	PRIVATE_KEY="$${PRIVATE_KEY:?set PRIVATE_KEY in env}" \
+	POS_TOKEN="$$token" MINT_TO="$$to" MINT_AMOUNT="$$amount" \
+	$(FOUNDRY_FORGE) script script/pos/PosOps.s.sol:PosOps --sig "runMint()" --rpc-url "$(RPC_URL)" --broadcast
+
+pos-register:
+	@operator_pk="$${OPERATOR_PK:-$${PRIVATE_KEY:-}}"; \
+	if [ -z "$$operator_pk" ]; then echo "set OPERATOR_PK or PRIVATE_KEY"; exit 1; fi; \
+	moniker="$${MONIKER:?set MONIKER}"; endpoint="$${ENDPOINT:?set ENDPOINT}"; \
+	node_id="$${NODE_ID_HEX:?set NODE_ID_HEX (0x...) }"; bls="$${BLS_PUBKEY_HEX:?set BLS_PUBKEY_HEX (0x...) }"; \
+	registry="$${POS_VALIDATOR_REGISTRY:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["validatorRegistry"])')}"; \
+	PRIVATE_KEY="$$operator_pk" POS_VALIDATOR_REGISTRY="$$registry" MONIKER="$$moniker" ENDPOINT="$$endpoint" NODE_ID_HEX="$$node_id" BLS_PUBKEY_HEX="$$bls" \
+	$(FOUNDRY_FORGE) script script/pos/PosOps.s.sol:PosOps --sig "runRegister()" --rpc-url "$(RPC_URL)" --broadcast
+
+pos-stake:
+	@operator_pk="$${OPERATOR_PK:-$${PRIVATE_KEY:-}}"; \
+	amount="$${AMOUNT:?usage: make pos-stake OPERATOR_PK=... AMOUNT=...}"; \
+	if [ -z "$$operator_pk" ]; then echo "set OPERATOR_PK or PRIVATE_KEY"; exit 1; fi; \
+	token="$${POS_TOKEN:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["token"])')}"; \
+	stake_manager="$${POS_STAKE_MANAGER:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["stakeManager"])')}"; \
+	PRIVATE_KEY="$$operator_pk" POS_TOKEN="$$token" POS_STAKE_MANAGER="$$stake_manager" STAKE_AMOUNT="$$amount" \
+	$(FOUNDRY_FORGE) script script/pos/PosOps.s.sol:PosOps --sig "runStake()" --rpc-url "$(RPC_URL)" --broadcast
+
+pos-unstake:
+	@operator_pk="$${OPERATOR_PK:-$${PRIVATE_KEY:-}}"; \
+	amount="$${AMOUNT:?usage: make pos-unstake OPERATOR_PK=... AMOUNT=...}"; \
+	if [ -z "$$operator_pk" ]; then echo "set OPERATOR_PK or PRIVATE_KEY"; exit 1; fi; \
+	stake_manager="$${POS_STAKE_MANAGER:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["stakeManager"])')}"; \
+	PRIVATE_KEY="$$operator_pk" POS_STAKE_MANAGER="$$stake_manager" UNSTAKE_AMOUNT="$$amount" \
+	$(FOUNDRY_FORGE) script script/pos/PosOps.s.sol:PosOps --sig "runUnstake()" --rpc-url "$(RPC_URL)" --broadcast
+
+pos-withdraw:
+	@operator_pk="$${OPERATOR_PK:-$${PRIVATE_KEY:-}}"; \
+	withdrawal_id="$${WITHDRAWAL_ID:?usage: make pos-withdraw OPERATOR_PK=... WITHDRAWAL_ID=...}"; \
+	if [ -z "$$operator_pk" ]; then echo "set OPERATOR_PK or PRIVATE_KEY"; exit 1; fi; \
+	stake_manager="$${POS_STAKE_MANAGER:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["stakeManager"])')}"; \
+	PRIVATE_KEY="$$operator_pk" POS_STAKE_MANAGER="$$stake_manager" WITHDRAWAL_ID="$$withdrawal_id" \
+	$(FOUNDRY_FORGE) script script/pos/PosOps.s.sol:PosOps --sig "runWithdraw()" --rpc-url "$(RPC_URL)" --broadcast
+
+pos-snapshot:
+	@epoch="$${EPOCH:?usage: make pos-snapshot EPOCH=... OPERATORS=0x...,0x...}"; \
+	operators="$${OPERATORS:?set OPERATORS=0x...,0x...}"; \
+	owner_pk="$${OWNER_PK:-$${PRIVATE_KEY:-}}"; \
+	if [ -z "$$owner_pk" ]; then echo "set OWNER_PK or PRIVATE_KEY"; exit 1; fi; \
+	epoch_manager="$${POS_EPOCH_MANAGER:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["epochManager"])')}"; \
+	PRIVATE_KEY="$$owner_pk" POS_EPOCH_MANAGER="$$epoch_manager" SNAPSHOT_EPOCH="$$epoch" OPERATORS="$$operators" \
+	$(FOUNDRY_FORGE) script script/pos/PosOps.s.sol:PosOps --sig "runSnapshot()" --rpc-url "$(RPC_URL)" --broadcast
+
+pos-info:
+	@token="$${POS_TOKEN:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["token"])')}"; \
+	stake_manager="$${POS_STAKE_MANAGER:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["stakeManager"])')}"; \
+	epoch_manager="$${POS_EPOCH_MANAGER:-$$(python -c 'import json;print(json.load(open("$(POS_ADDRESSES_FILE)"))["epochManager"])')}"; \
+	echo "token address: $$token"; \
+	echo "stakeManager address: $$stake_manager"; \
+	echo "epochManager address: $$epoch_manager"; \
+	epoch_length="$$($(FOUNDRY_CAST) call $$epoch_manager 'EPOCH_LENGTH_BLOCKS()(uint256)' --rpc-url $(RPC_URL))"; \
+	current_epoch="$$($(FOUNDRY_CAST) call $$epoch_manager 'currentEpoch()(uint256)' --rpc-url $(RPC_URL))"; \
+	total_staked="$$($(FOUNDRY_CAST) call $$stake_manager 'totalStaked()(uint256)' --rpc-url $(RPC_URL))"; \
+	echo "epoch length blocks: $$epoch_length"; \
+	echo "current epoch: $$current_epoch"; \
+	echo "total staked: $$total_staked"
