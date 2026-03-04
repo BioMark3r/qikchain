@@ -652,24 +652,44 @@ What it validates:
 4) Prints diagnostics on failure (status JSON, node1 log tail, listener ports)
 5) Always stops devnet on exit (success or failure)
 
-### Transaction integration smoke (local + CI)
+### Transaction path integration (local + CI)
 
-This repo includes a CI-grade integration script that proves the devnet is live by sending a real EIP-1559 transfer and asserting `receipt.status == 1`.
+Use `make test-tx` to run end-to-end transaction-path checks against devnet.
+
+The tx suite (`scripts/tests/tx_integration.sh`) validates:
+
+1) send 1 wei to burn address,
+2) deploy embedded test contract bytecode,
+3) sign and submit a raw transaction.
 
 Run locally:
 
 ```bash
-export CI_FUNDER_PRIVKEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-export RPC_URL=http://127.0.0.1:8545
-bash scripts/ci/integration-devnet.sh
+make test-tx
 ```
 
-Notes:
+Optional environment variables:
 
-- The script starts/stops devnet and writes logs to `.ci-logs/devnet.out`.
-- Set `DOCKER_DEVNET=1` to run the same integration check against `docker compose` (useful in CI).
-- The default dev CI key maps to address `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`, which is pre-funded in devnet genesis by `scripts/devnet-ibft4.sh`.
-- In GitHub Actions, set repository secret `CI_FUNDER_PRIVKEY` (Settings → Secrets and variables → Actions).
+- `RPC_URL` (default `http://127.0.0.1:8545`)
+- `SENDER_PRIVATE_KEY` (preferred key source)
+- `FAUCET_PRIVATE_KEY` (fallback key source)
+- `CI_TX=1` (include tx suite inside `make test` / CI entrypoint)
+- `TX_HTTP_URL` (optional tx HTTP endpoint, e.g. `http://127.0.0.1:8788/api/tx/send-wei`)
+- `TX_TOKEN` (required when `TX_HTTP_URL` is set)
+- `GAS_MULTIPLIER` (default `1.2`)
+
+Skip/fail behavior:
+
+- If no sender key can be resolved (`SENDER_PRIVATE_KEY`, `FAUCET_PRIVATE_KEY`, or dev-only key discovery under `.data`), tx tests print `tx tests skipped: no key` and exit `0`.
+- If `TX_HTTP_URL` is explicitly set but `TX_TOKEN` is missing, tx tests fail with a clear error.
+- If tx HTTP mode is not enabled/available, the suite falls back to raw JSON-RPC.
+
+CI notes:
+
+- `scripts/ci/run.sh` runs tx tests only when `CI_TX=1`.
+- GitHub Actions sets `CI_TX=1` and passes optional secrets:
+  - `SENDER_PRIVATE_KEY` or `FAUCET_PRIVATE_KEY`
+  - `TX_HTTP_URL` and `TX_TOKEN` (only needed for UI tx endpoint mode)
 
 ---
 

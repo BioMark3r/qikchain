@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 CI_INTEGRATION="${CI_INTEGRATION:-1}"
+CI_TX="${CI_TX:-0}"
 RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 
 printf 'go version: '
@@ -40,4 +41,11 @@ if [ "$CI_INTEGRATION" = "1" ]; then
   RPC_URL="$RPC_URL" bash scripts/tests/integration.sh
 else
   echo "==> Skipping integration tests (CI_INTEGRATION=$CI_INTEGRATION)"
+fi
+
+if [ "$CI_TX" = "1" ]; then
+  echo "==> Running tx integration tests"
+  RPC_URL="$RPC_URL" bash scripts/tests/tx_integration.sh
+else
+  echo "==> Skipping tx integration tests (CI_TX=$CI_TX)"
 fi

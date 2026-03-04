@@ -66,7 +66,7 @@ $(error ROOT appears malformed (multiple absolute paths detected): [$(ROOT)])
 endif
 
 
-.PHONY: help print-vars build build-qikchain build-txhelper build-qikchaind build-edge clean clean-data clean-pids clean-logs fmt test test-unit test-integration ci lint \
+.PHONY: help print-vars build build-qikchain build-txhelper build-qikchaind build-edge clean clean-data clean-pids clean-logs fmt test test-all test-unit test-integration test-tx ci lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
@@ -94,9 +94,11 @@ help:
 	@echo "  make clean-pids       Remove devnet PID files"
 	@echo "  make clean-logs       Remove devnet log files"
 	@echo "  make fmt              Format Go code"
-	@echo "  make test             Run unit + integration tests"
+	@echo "  make test             Run unit + integration tests (+ tx when CI_TX=1)"
 	@echo "  make test-unit        Run only Go unit tests"
 	@echo "  make test-integration Run integration test script"
+	@echo "  make test-tx          Run transaction-path integration tests"
+	@echo "  make test-all         Run unit + integration + tx tests"
 	@echo "  make ci               Run CI entrypoint script"
 	@echo "  make lint             Run go vet"
 	@echo "  make release-local    Build release tarballs + SHA256SUMS into dist/"
@@ -243,6 +245,12 @@ fmt:
 	@gofmt -w $$(find . -type f -name '*.go' -not -path './third_party/*')
 
 test: test-unit test-integration
+	@if [ "${CI_TX:-0}" = "1" ]; then \
+		$(MAKE) --no-print-directory test-tx; \
+	else \
+		echo "==> Skipping tx integration tests (set CI_TX=1 to enable)"; \
+	fi
+
 
 test-unit:
 	@echo "==> Running unit tests"
@@ -251,6 +259,12 @@ test-unit:
 test-integration:
 	@echo "==> Running integration tests"
 	bash ./scripts/tests/integration.sh
+
+test-tx:
+	@echo "==> Running tx integration tests"
+	bash ./scripts/tests/tx_integration.sh
+
+test-all: test-unit test-integration test-tx
 
 ci:
 	@echo "==> Running CI entrypoint"
