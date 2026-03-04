@@ -162,14 +162,12 @@
       function renderNodes(nodes) {
         nodesEl.innerHTML = (nodes || [])
           .map((node) => `
-            <div class="node ${node.up ? '' : 'down'}">
-              <div class="state ${node.up ? 'up' : 'down'}">${node.up ? 'Up' : 'Down'}</div>
+            <div class="node ${node.reachable ? '' : 'down'}">
+              <div class="state ${node.reachable ? 'up' : 'down'}">${node.reachable ? 'Reachable' : 'Unreachable'}</div>
               <div class="rpc"><strong>${node.rpc}</strong></div>
               <div class="kv"><strong>chainId:</strong> ${node.chainId ?? '-'}</div>
-              <div class="kv"><strong>peerCount:</strong> ${node.peerCount ?? '-'}</div>
-              <div class="kv"><strong>blockHead1:</strong> ${node.blockHead1 ?? '-'}</div>
-              <div class="kv"><strong>blockHead2:</strong> ${node.blockHead2 ?? '-'}</div>
-              <div class="kv"><strong>sealingHealthy:</strong> ${String(Boolean(node.sealingHealthy))}</div>
+              <div class="kv"><strong>net_peerCount:</strong> ${node.netPeerCount ?? '-'}</div>
+              <div class="kv"><strong>eth_blockNumber:</strong> ${node.ethBlockNumber ?? '-'}</div>
               ${node.error ? `<div class="error">${node.error}</div>` : ''}
             </div>
           `)
