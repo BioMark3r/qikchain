@@ -819,3 +819,51 @@ See `ROADMAP.md`:
 ## License
 
 TBD
+
+## PoS (ERC20 Staking) – Milestone 1
+
+Milestone 1 adds PoS staking state/contracts/tooling for devnet workflows. It **does not** change runtime consensus behavior yet.
+
+### Quickstart
+
+Deploy contracts:
+
+```bash
+make pos-deploy RPC_URL=http://127.0.0.1:8545 PRIVATE_KEY=0x...
+```
+
+Mint devnet QIK:
+
+```bash
+make pos-mint TO=0x... AMOUNT=100000000000000000000000 PRIVATE_KEY=0x...
+```
+
+Register validator metadata:
+
+```bash
+make pos-register OPERATOR_PK=0x... MONIKER=validator-1 ENDPOINT=http://127.0.0.1:30303 NODE_ID_HEX=0x1234 BLS_PUBKEY_HEX=0xabcd
+```
+
+Stake tokens:
+
+```bash
+make pos-stake OPERATOR_PK=0x... AMOUNT=1000000000000000000000
+```
+
+Snapshot active set:
+
+```bash
+make pos-snapshot EPOCH=1 OPERATORS=0xabc...,0xdef... OWNER_PK=0x...
+```
+
+Query deployment + staking info:
+
+```bash
+make pos-info
+```
+
+### Notes
+
+- Snapshot submission is owner-driven in this milestone (placeholder for future deterministic derivation from stake state).
+- Keep private keys in env vars or secret files; avoid shell history leaks.
+- Use `docs/pos/erc20-pos-skeleton.md` for the current on-chain interface/state spec.
