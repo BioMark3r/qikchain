@@ -46,7 +46,12 @@ jobs:
       - name: Run CI entrypoint
         env:
           CI_INTEGRATION: "1"
+          CI_TX: "1"
           RPC_URL: http://127.0.0.1:8545
+          SENDER_PRIVATE_KEY: ${{ secrets.SENDER_PRIVATE_KEY }}
+          FAUCET_PRIVATE_KEY: ${{ secrets.FAUCET_PRIVATE_KEY }}
+          TX_HTTP_URL: ${{ secrets.TX_HTTP_URL }}
+          TX_TOKEN: ${{ secrets.TX_TOKEN }}
         run: |
           set -euo pipefail
           bash scripts/ci/run.sh
