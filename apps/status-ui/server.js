@@ -4,10 +4,10 @@ const path = require('path');
 const { execFile } = require('child_process');
 
 const app = express();
-const port = Number(process.env.PORT || 8787);
+const statusUiPort = Number(process.env.STATUS_UI_PORT || process.env.PORT || 8788);
 const readonlyProd = process.env.READONLY_PROD === '1';
 const readonly = process.env.READONLY === '1';
-const host = process.env.HOST || (readonlyProd ? '127.0.0.1' : '0.0.0.0');
+const host = process.env.STATUS_UI_HOST || process.env.HOST || (readonlyProd ? '127.0.0.1' : '0.0.0.0');
 const cacheMs = Math.max(0, Number(process.env.CACHE_MS || 1000));
 const divergenceWarn = Math.max(0, Number(process.env.DIVERGENCE_WARN || 3));
 const txRateLimitPerMinBase = Math.max(1, Number(process.env.TX_RATE_LIMIT_PER_MIN || 10));
@@ -16,11 +16,9 @@ const rawTxMaxBytesBase = Math.max(1, Number(process.env.RAW_TX_MAX_BYTES || 819
 const rawTxMaxBytes = readonlyProd ? Math.min(rawTxMaxBytesBase, 4096) : rawTxMaxBytesBase;
 const deployGasCap = Math.max(21000, Number(process.env.DEPLOY_GAS_CAP || 2000000));
 const repoRoot = path.resolve(__dirname, '..', '..');
-const cliPath = path.join(repoRoot, 'bin', 'qikchain');
 const txHelperPath = path.join(repoRoot, 'bin', 'txhelper');
-const COMMAND_TIMEOUT_MS = 3000;
 const TX_TIMEOUT_MS = 20000;
-const SEALING_DELAY_MS = 2000;
+const RPC_TIMEOUT_MS = Math.max(500, Number(process.env.RPC_TIMEOUT_MS || 2000));
 const BURN_ADDRESS = process.env.BURN_ADDRESS || '0x000000000000000000000000000000000000dEaD';
 
 const authUser = process.env.AUTH_USER || '';
@@ -54,7 +52,12 @@ function parseRpcUrls() {
     return [fallbackRpc];
   }
 
-  return ['http://127.0.0.1:8545'];
+  return [
+    'http://127.0.0.1:8545',
+    'http://127.0.0.1:8546',
+    'http://127.0.0.1:8547',
+    'http://127.0.0.1:8548',
+  ];
 }
 
 function sanitizeError(err) {
@@ -84,19 +87,6 @@ function maskRpcUrl(rpc) {
   }
 }
 
-function runQikchain(args) {
-  return new Promise((resolve, reject) => {
-    execFile(cliPath, args, { cwd: repoRoot, timeout: COMMAND_TIMEOUT_MS }, (error, stdout, stderr) => {
-      if (error) {
-        const errMessage = (stderr || error.message || 'qikchain command failed').trim();
-        reject(new Error(errMessage));
-        return;
-      }
-      resolve((stdout || '').trim());
-    });
-  });
-}
-
 function runTxHelper(args) {
   return new Promise((resolve, reject) => {
     execFile(txHelperPath, args, { cwd: repoRoot, timeout: TX_TIMEOUT_MS }, (error, stdout, stderr) => {
@@ -110,110 +100,103 @@ function runTxHelper(args) {
   });
 }
 
-function parseFieldNumber(stdout, fieldName) {
-  const fieldRegex = new RegExp(`${fieldName}\\s*:\\s*(-?\\d+)`, 'i');
-  const match = stdout.match(fieldRegex);
-  if (!match) {
+
+function parseHexNumber(hex) {
+  if (typeof hex !== 'string' || !/^0x[0-9a-fA-F]+$/.test(hex)) {
     return null;
   }
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
-function parseChainId(stdout) {
-  const match = stdout.match(/chainId\s*:\s*([^\s]+)/i);
-  if (!match) {
+  try {
+    return Number.parseInt(hex, 16);
+  } catch (_error) {
     return null;
   }
-  return String(match[1]).trim();
 }
 
-function parsePeerCount(stdout) {
-  return parseFieldNumber(stdout, 'peerCount');
-}
+async function rpcCall(rpc, method) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
 
-function parseBlockHead(stdout) {
-  const fieldValue = parseFieldNumber(stdout, 'blockHead');
-  if (fieldValue !== null) {
-    return fieldValue;
+  try {
+    const response = await fetch(rpc, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: `${method}-${Date.now()}`, method, params: [] }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    if (payload.error) {
+      throw new Error(payload.error.message || 'rpc error');
+    }
+
+    return payload.result;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`timeout after ${RPC_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const firstInteger = stdout.match(/-?\d+/);
-  if (!firstInteger) {
-    return null;
-  }
-  const parsed = Number(firstInteger[0]);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function checkNode(rpc) {
   const node = {
     rpc,
-    up: false,
+    reachable: false,
     chainId: null,
-    peerCount: null,
-    blockHead1: null,
-    blockHead2: null,
-    sealingHealthy: false,
+    netPeerCount: null,
+    ethBlockNumber: null,
     error: null,
   };
 
   try {
-    const statusOutput = await runQikchain(['status', '--rpc', rpc]);
-    const blockHeadOutput1 = await runQikchain(['block', 'head', '--rpc', rpc]);
+    const [blockHex, peerHex, chainHex] = await Promise.all([
+      rpcCall(rpc, 'eth_blockNumber'),
+      rpcCall(rpc, 'net_peerCount'),
+      rpcCall(rpc, 'eth_chainId').catch(() => null),
+    ]);
 
-    node.chainId = parseChainId(statusOutput);
-    node.peerCount = parsePeerCount(statusOutput);
-    node.blockHead1 = parseBlockHead(blockHeadOutput1);
-
-    await sleep(SEALING_DELAY_MS);
-
-    const blockHeadOutput2 = await runQikchain(['block', 'head', '--rpc', rpc]);
-    node.blockHead2 = parseBlockHead(blockHeadOutput2);
-
-    node.up = true;
-    node.sealingHealthy =
-      Number.isInteger(node.blockHead1) &&
-      Number.isInteger(node.blockHead2) &&
-      node.blockHead2 > node.blockHead1;
+    node.ethBlockNumber = parseHexNumber(blockHex);
+    node.netPeerCount = parseHexNumber(peerHex);
+    node.chainId = chainHex;
+    node.reachable = true;
 
     return node;
-  } catch (_error) {
+  } catch (error) {
     return {
       ...node,
-      up: false,
-      sealingHealthy: false,
-      error: sanitizeError('unavailable'),
+      reachable: false,
+      error: sanitizeError(error.message || 'unavailable'),
     };
   }
 }
 
 function summarize(nodes) {
   const nodesTotal = nodes.length;
-  const nodesUpNodes = nodes.filter((node) => node.up);
+  const nodesUpNodes = nodes.filter((node) => node.reachable);
   const nodesUp = nodesUpNodes.length;
-  const nodesSealing = nodes.filter((node) => node.sealingHealthy).length;
+  const nodesSealing = nodesUp;
 
-  const heads = nodesUpNodes.map((node) => node.blockHead2).filter((value) => Number.isInteger(value));
+  const heads = nodesUpNodes.map((node) => node.ethBlockNumber).filter((value) => Number.isInteger(value));
   const minBlockHead = heads.length > 0 ? Math.min(...heads) : null;
   const maxBlockHead = heads.length > 0 ? Math.max(...heads) : null;
   const headDivergence = heads.length > 0 ? maxBlockHead - minBlockHead : 0;
 
-  const upChainIds = nodes.filter((node) => node.up && node.chainId !== null).map((node) => node.chainId);
+  const upChainIds = nodes.filter((node) => node.reachable && node.chainId !== null).map((node) => node.chainId);
   const uniqueChainIds = [...new Set(upChainIds)];
   const chainId = uniqueChainIds.length === 1 ? uniqueChainIds[0] : null;
 
-  let healthy = nodesUp > 0 && nodesSealing > 0;
-  let reason = 'At least one node is up and sealing.';
+  let healthy = nodesUp > 0;
+  let reason = 'At least one node is reachable.';
   if (!healthy) {
     if (nodesUp === 0) {
       reason = 'No nodes are reachable.';
-    } else if (nodesSealing === 0) {
-      reason = 'No node appears to be sealing.';
     }
   }
 
@@ -428,12 +411,10 @@ app.get('/api/status', async (_req, res) => {
       rpcs: readonlyProd ? parseRpcUrls().map((rpc) => maskRpcUrl(rpc)) : parseRpcUrls(),
       nodes: parseRpcUrls().map((rpc) => ({
         rpc: maskRpcUrl(rpc),
-        up: false,
+        reachable: false,
         chainId: null,
-        peerCount: null,
-        blockHead1: null,
-        blockHead2: null,
-        sealingHealthy: false,
+        netPeerCount: null,
+        ethBlockNumber: null,
         error: sanitizeError('unavailable'),
       })),
     });
@@ -537,8 +518,8 @@ app.use((error, _req, res, next) => {
   next(error);
 });
 
-app.listen(port, host, () => {
-  console.log(`status-ui listening on http://${host}:${port}`);
+app.listen(statusUiPort, host, () => {
+  console.log(`status-ui listening on http://${host}:${statusUiPort} (rpc_urls=${parseRpcUrls().length})`);
   console.log(`RPC targets: ${parseRpcUrls().join(', ')}`);
   console.log(`readonlyProd=${readonlyProd} readonly=${readonly} authEnabled=${authEnabled} cacheMs=${cacheMs} txEnabled=${txEnabled}`);
 });

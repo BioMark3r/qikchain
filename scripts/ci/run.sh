@@ -30,6 +30,9 @@ else
   fi
 fi
 
+echo "==> Running lint"
+CI_LINT_STRICT="${CI_LINT_STRICT:-1}" make lint
+
 echo "==> Running unit tests"
 go test ./... -count=1
 

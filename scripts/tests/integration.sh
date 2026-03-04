@@ -7,7 +7,7 @@ cd "$ROOT"
 RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 RPC_TIMEOUT_SECONDS="${RPC_TIMEOUT_SECONDS:-120}"
 RPC_POLL_INTERVAL_SECONDS="${RPC_POLL_INTERVAL_SECONDS:-2}"
-UI_URL="${UI_URL:-http://127.0.0.1:9632}"
+UI_URL="${UI_URL:-http://127.0.0.1:8788}"
 UI_TIMEOUT_SECONDS="${UI_TIMEOUT_SECONDS:-60}"
 
 has_make_target() {
@@ -74,9 +74,9 @@ if has_make_target "status-ui"; then
   echo "==> status-ui target detected, starting optional UI"
   ui_port="$(printf '%s' "$UI_URL" | sed -n 's#http://[^:]*:\([0-9][0-9]*\).*#\1#p')"
   if [ -z "$ui_port" ]; then
-    ui_port=9632
+    ui_port=8788
   fi
-  HOST=127.0.0.1 PORT="$ui_port" make status-ui
+  STATUS_UI_HOST=127.0.0.1 STATUS_UI_PORT="$ui_port" make status-ui
 
   ui_deadline=$((SECONDS + UI_TIMEOUT_SECONDS))
   while true; do

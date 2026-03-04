@@ -421,8 +421,9 @@ make status-ui
 - Runs the server in the background with `nohup`
 - Writes process state to `.data/status-ui/status-ui.pid`
 - Writes logs to `.data/status-ui/status-ui.log`
-- Defaults to `HOST=0.0.0.0` and `PORT=8788` (unless overridden)
-- Calls `http://127.0.0.1:<PORT>/api/status` and prints detected `localIP` / `publicIP` URLs when available
+- Defaults to `STATUS_UI_HOST=0.0.0.0`, `STATUS_UI_PORT=8788`, and
+  `RPC_URLS=http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548`
+- Calls `http://127.0.0.1:<STATUS_UI_PORT>/api/status` for readiness checks
 - Is idempotent (if already running, it reports the existing process and exits)
 
 Examples:
@@ -432,14 +433,15 @@ Examples:
 RPC_URLS="http://127.0.0.1:8545,http://127.0.0.1:8546" make status-ui
 
 # bind loopback only
-HOST=127.0.0.1 PORT=8788 make status-ui
+STATUS_UI_HOST=127.0.0.1 STATUS_UI_PORT=8788 make status-ui
 
 # hardened mode
 READONLY_PROD=1 \
 AUTH_USER=admin \
 AUTH_PASS=strongpassword \
 CACHE_MS=2000 \
-HOST=127.0.0.1 \
+STATUS_UI_HOST=127.0.0.1 \
+STATUS_UI_PORT=8788 \
 make status-ui
 ```
 
@@ -454,12 +456,13 @@ make status-ui-status
 Environment overrides:
 
 - `RPC_URLS` (comma-separated list)
-- `RPC_URL` (single-endpoint fallback)
+- `RPC_URL` (single-endpoint fallback when `RPC_URLS` is unset)
 - `CACHE_MS` (default: `1000`)
 - `READONLY_PROD` (`1` enables hardening mode)
 - `AUTH_USER` and `AUTH_PASS` (enable basic auth only when both are set)
-- `HOST` (default: `127.0.0.1` in readonly prod, otherwise `0.0.0.0`)
-- `PORT` (default: `8788`)
+- `STATUS_UI_HOST` (default: `0.0.0.0`)
+- `STATUS_UI_PORT` (default: `8788`)
+- `RPC_TIMEOUT_MS` (default: `2000`, per-RPC request timeout)
 
 Security note:
 
