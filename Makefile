@@ -66,7 +66,7 @@ $(error ROOT appears malformed (multiple absolute paths detected): [$(ROOT)])
 endif
 
 
-.PHONY: help print-vars build build-qikchain build-txhelper build-qikchaind build-edge clean clean-data clean-pids clean-logs fmt test lint \
+.PHONY: help print-vars build build-qikchain build-txhelper build-qikchaind build-edge clean clean-data clean-pids clean-logs fmt test test-unit test-integration ci lint \
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
@@ -94,7 +94,10 @@ help:
 	@echo "  make clean-pids       Remove devnet PID files"
 	@echo "  make clean-logs       Remove devnet log files"
 	@echo "  make fmt              Format Go code"
-	@echo "  make test             Run Go tests"
+	@echo "  make test             Run unit + integration tests"
+	@echo "  make test-unit        Run only Go unit tests"
+	@echo "  make test-integration Run integration test script"
+	@echo "  make ci               Run CI entrypoint script"
 	@echo "  make lint             Run go vet"
 	@echo "  make release-local    Build release tarballs + SHA256SUMS into dist/"
 	@echo ""
@@ -239,9 +242,19 @@ fmt:
 	@echo "==> Formatting Go code"
 	@gofmt -w $$(find . -type f -name '*.go' -not -path './third_party/*')
 
-test:
-	@echo "==> Running tests"
-	$(GO) test ./...
+test: test-unit test-integration
+
+test-unit:
+	@echo "==> Running unit tests"
+	$(GO) test ./... -count=1
+
+test-integration:
+	@echo "==> Running integration tests"
+	bash ./scripts/tests/integration.sh
+
+ci:
+	@echo "==> Running CI entrypoint"
+	bash ./scripts/ci/run.sh
 
 lint:
 	@echo "==> Running go vet"

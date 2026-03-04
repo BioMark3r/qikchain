@@ -2,114 +2,61 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
   pull_request:
-    branches: ["main"]
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-22.04
+  ci:
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
-    env:
-      POLYGON_EDGE_REF: v1.3.3
-      EDGE_REPO_URL: https://github.com/BioMark3r/polygon-edge.git
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Go from go.mod
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Install build dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            git \
-            make \
-            ca-certificates \
-            build-essential \
-            file \
-            jq
-          sudo rm -rf /var/lib/apt/lists/*
-
-      - name: Tool versions
-        run: |
-          set -euo pipefail
-          go version
-          git --version
-          make --version
-
-      - name: Restore polygon-edge cache
-        uses: actions/cache@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          path: |
-            third_party/polygon-edge
-            bin/polygon-edge
-          key: ${{ runner.os }}-polygon-edge-${{ env.POLYGON_EDGE_REF }}-${{ hashFiles('**/go.sum', 'Makefile', 'scripts/**', 'config/**') }}
-          restore-keys: |
-            ${{ runner.os }}-polygon-edge-${{ env.POLYGON_EDGE_REF }}-
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            **/package-lock.json
 
-      - name: Run tests
+      - name: Install npm dependencies for lockfiles
         run: |
           set -euo pipefail
-          go test ./...
-
-      - name: Build binaries
-        run: |
-          set -euo pipefail
-          export EDGE_REF="${POLYGON_EDGE_REF}"
-          if make -n edge >/dev/null 2>&1 && make -n qikchain >/dev/null 2>&1; then
-            make edge
-            make qikchain
-          else
-            make all
+          mapfile -t lockfiles < <(find . -name package-lock.json -type f | sort)
+          if [ "${#lockfiles[@]}" -eq 0 ]; then
+            echo "No package-lock.json files found; skipping npm ci"
+            exit 0
           fi
 
-      - name: Verify artifacts
-        run: |
-          set -euo pipefail
-          test -x bin/qikchain
-          test -x bin/polygon-edge
-          ls -la bin/
-          file bin/qikchain bin/polygon-edge
+          for lockfile in "${lockfiles[@]}"; do
+            dir="$(dirname "$lockfile")"
+            echo "Running npm ci in $dir"
+            (cd "$dir" && npm ci)
+          done
 
-
-      - name: Devnet transaction integration smoke
+      - name: Run CI entrypoint
         env:
-          CI_FUNDER_PRIVKEY: ${{ secrets.CI_FUNDER_PRIVKEY }}
+          CI_INTEGRATION: "1"
           RPC_URL: http://127.0.0.1:8545
         run: |
           set -euo pipefail
-          bash scripts/ci/integration-devnet.sh
+          bash scripts/ci/run.sh
 
-      - name: Upload artifacts
+      - name: Upload failure artifacts
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: qikchain-linux-build
-          retention-days: 7
+          name: ci-failure-artifacts
+          if-no-files-found: ignore
           path: |
-            bin/qikchain
-            bin/polygon-edge
-
-      - name: Failure diagnostics
-        if: failure()
-        run: |
-          set -euo pipefail
-          echo "== workspace =="
-          ls -la
-          echo "== bin =="
-          ls -la bin/ || true
-          echo "== go env =="
-          go env
-          echo "== recent logs =="
-          find . -maxdepth 3 -type f \( -name '*.log' -o -name '*.out' \) -print -exec tail -n 200 {} \;
+            .logs
+            .data
