@@ -566,12 +566,11 @@ Use the standalone faucet and wallet CLI helpers to speed up devnet testing.
 
 > The faucet listens on its own port (`8787` by default), separate from the status UI (`8788` default).
 
-Defaults used by `Makefile`:
+Defaults used by the faucet workflow:
 
-- `RPC_URL=http://127.0.0.1:8545`
 - `FAUCET_HOST=0.0.0.0`
 - `FAUCET_PORT=8787`
-- `FAUCET_URL=http://127.0.0.1:8787`
+- `FAUCET_RPC_URL=http://127.0.0.1:8545`
 - `FAUCET_AMOUNT_WEI=100000000000000000` (0.1 ETH)
 - `FAUCET_TOKEN=devtoken-change-me`
 
@@ -583,12 +582,22 @@ Start chain (existing flow):
 make up
 ```
 
-Start faucet:
+First-time faucet setup:
 
 ```bash
-export FAUCET_PRIVATE_KEY=...
-export FAUCET_TOKEN=...
+make faucet-init
+# edit .env.faucet and set FAUCET_PRIVATE_KEY + FAUCET_TOKEN
 make faucet-up
+```
+
+Common faucet commands:
+
+```bash
+make faucet-status
+make faucet-url
+make faucet-logs
+make faucet-stop
+make faucet-restart
 ```
 
 Create wallet:
@@ -617,15 +626,10 @@ make wallet-send FROM_PK=... TO=0x... VALUE_WEI=1
 
 Prefunding note:
 
-If your chain is frequently reset, either:
+If faucet tx fails with insufficient funds, prefund the faucet address in genesis or transfer funds to it after chain start.
 
-- Prefund the faucet address in genesis alloc, or
-- Transfer funds to the faucet signer from a validator after boot.
+Additional helper:
 
-Additional helpers:
-
-- `make faucet-stop`
-- `make faucet-logs`
 - `make wallet-new OUT=.secrets/another-wallet.json`
 
 

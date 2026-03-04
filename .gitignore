@@ -14,3 +14,6 @@ third_party/
 
 # Docker
 *.tar
+
+# Local faucet env
+.env.faucet
