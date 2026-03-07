@@ -23,6 +23,8 @@ UI_DIR := apps/status-ui
 UI_STATE_DIR := $(DATA_DIR)/status-ui
 UI_PID := $(UI_STATE_DIR)/status-ui.pid
 UI_LOG := $(UI_STATE_DIR)/status-ui.log
+TX_LAB_PID := $(PID_DIR)/tx-lab.pid
+TX_LAB_LOG := $(LOG_DIR)/tx-lab.log
 FAUCET_DIR := tools/faucet
 FAUCET_RUN_SCRIPT := $(FAUCET_DIR)/run.sh
 FAUCET_PID := $(PID_DIR)/faucet.pid
@@ -33,6 +35,8 @@ WALLET_DIR := tools/wallet
 RPC_URL ?= http://127.0.0.1:8545
 STATUS_UI_HOST ?= 0.0.0.0
 STATUS_UI_PORT ?= 8788
+TX_LAB_HOST ?= 127.0.0.1
+TX_LAB_PORT ?= 8799
 RPC_URLS ?= http://127.0.0.1:8545,http://127.0.0.1:8546,http://127.0.0.1:8547,http://127.0.0.1:8548
 CI_LINT_STRICT ?= 0
 FAUCET_PORT ?= 8787
@@ -74,7 +78,7 @@ endif
 	genesis-poa genesis-pos genesis-validate allocations-verify \
 	up up-poa up-pos down status logs logs-follow \
 	reset reset-poa reset-pos doctor docker-devnet-up docker-devnet-down docker-devnet-logs release-local \
-	status-ui status-ui-logs status-ui-status stop-ui up-with-ui \
+	status-ui status-ui-logs status-ui-status stop-ui up-with-ui tx-lab tx-lab-up tx-lab-stop tx-lab-status tx-lab-logs \
 	faucet-init faucet-up faucet-stop faucet-status faucet-restart faucet-url faucet-ui faucet-logs faucet-send wallet-new wallet-balance wallet-send
 
 print-vars:
@@ -129,6 +133,11 @@ help:
 	@echo "  make status-ui-status Check status UI pid/process state"
 	@echo "  make stop-ui          Stop status UI background process"
 	@echo "  make up-with-ui       Start devnet in background, then run status UI"
+	@echo "  make tx-lab           Alias for tx-lab-up (dev-only tx testing UI/service)"
+	@echo "  make tx-lab-up        Start TX Lab service on TX_LAB_PORT in background"
+	@echo "  make tx-lab-stop      Stop TX Lab background process"
+	@echo "  make tx-lab-status    Check TX Lab pid/process state"
+	@echo "  make tx-lab-logs      Tail TX Lab logs"
 	@echo "  make faucet-init      Create .env.faucet template for local faucet config"
 	@echo "  make faucet-up        Start standalone faucet in background"
 	@echo "  make faucet-stop      Stop standalone faucet"
@@ -168,6 +177,8 @@ help:
 	@echo "  RPC_URL=$(RPC_URL)"
 	@echo "  STATUS_UI_HOST=$(STATUS_UI_HOST)"
 	@echo "  STATUS_UI_PORT=$(STATUS_UI_PORT)"
+	@echo "  TX_LAB_HOST=$(TX_LAB_HOST)"
+	@echo "  TX_LAB_PORT=$(TX_LAB_PORT)"
 	@echo "  RPC_URLS=$(RPC_URLS)"
 	@echo "  CI_LINT_STRICT=$(CI_LINT_STRICT)"
 	@echo "  FAUCET_HOST=$(FAUCET_HOST)"
@@ -474,6 +485,55 @@ up-with-ui:
 	@$(MAKE) up >/tmp/qikchain-up.log 2>&1 &
 	@echo "==> Devnet logs: /tmp/qikchain-up.log"
 	@$(MAKE) status-ui
+
+
+tx-lab: tx-lab-up
+
+tx-lab-up:
+	@echo "==> Starting TX Lab in background (dev-only)"
+	@mkdir -p "$(PID_DIR)" "$(LOG_DIR)"
+	@if [ -f "$(TX_LAB_PID)" ]; then \
+		pid=$$(cat "$(TX_LAB_PID)"); \
+		if kill -0 "$$pid" >/dev/null 2>&1; then \
+			echo "tx-lab already running (pid=$$pid)"; \
+			echo "URL: http://127.0.0.1:$(TX_LAB_PORT)"; \
+			exit 0; \
+		fi; \
+		rm -f "$(TX_LAB_PID)"; \
+	fi
+	@if [ -f "$(UI_DIR)/package-lock.json" ]; then \
+		npm --prefix "$(UI_DIR)" ci; \
+	else \
+		npm --prefix "$(UI_DIR)" install; \
+	fi
+	@nohup env STATUS_UI_HOST="$(TX_LAB_HOST)" STATUS_UI_PORT="$(TX_LAB_PORT)" TX_LAB_ENABLE=1 TX_LAB_HOST="$(TX_LAB_HOST)" TX_LAB_PORT="$(TX_LAB_PORT)" node "$(UI_DIR)/server.js" >>"$(TX_LAB_LOG)" 2>&1 & \
+	pid=$$!; echo $$pid >"$(TX_LAB_PID)"; sleep 1; \
+	echo "tx-lab running (pid=$$pid)"; \
+	echo "URL: http://127.0.0.1:$(TX_LAB_PORT)"; \
+	echo "Log file: $(TX_LAB_LOG)"
+
+tx-lab-stop:
+	@echo "==> Stopping TX Lab"
+	@if [ ! -f "$(TX_LAB_PID)" ]; then echo "tx-lab is not running"; exit 0; fi; \
+	pid=$$(cat "$(TX_LAB_PID)"); \
+	if kill -0 "$$pid" >/dev/null 2>&1; then kill "$$pid"; sleep 0.5; fi; \
+	rm -f "$(TX_LAB_PID)"; \
+	echo "tx-lab stopped"
+
+tx-lab-status:
+	@if [ ! -f "$(TX_LAB_PID)" ]; then echo "tx-lab is not running (missing $(TX_LAB_PID))"; exit 0; fi; \
+	pid=$$(cat "$(TX_LAB_PID)"); \
+	if kill -0 "$$pid" >/dev/null 2>&1; then \
+		echo "tx-lab is running (pid=$$pid)"; \
+		echo "URL: http://127.0.0.1:$(TX_LAB_PORT)"; \
+		echo "Log file: $(TX_LAB_LOG)"; \
+	else \
+		echo "tx-lab pid file exists but process $$pid is not running"; \
+	fi
+
+tx-lab-logs:
+	@if [ ! -f "$(TX_LAB_LOG)" ]; then echo "tx-lab log file not found: $(TX_LAB_LOG)"; exit 1; fi; \
+	tail -f "$(TX_LAB_LOG)"
 
 faucet-up:
 	@echo "==> Starting standalone faucet in background"
