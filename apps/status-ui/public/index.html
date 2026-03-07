@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>QikChain Status</title>
+    <title>QikChain Status + TX Lab</title>
     <style>
       body { font-family: Arial, sans-serif; margin: 20px; background:#f5f7fb; color:#17202a; }
       .panel { background:#fff; border:1px solid #e0e6ef; border-radius:10px; padding:14px; margin-bottom:14px; }
@@ -13,7 +13,7 @@
       .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; }
       .stat { background:#f8fafc; border:1px solid #e5eaf1; border-radius:8px; padding:8px; }
       .muted { color:#6b7280; font-size:12px; }
-      .nodes { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
+      .nodes,.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
       .node { background:#fff; border:1px solid #dde3ec; border-radius:10px; padding:10px; }
       .node.down { border-color:#f3b8c0; background:#fff5f7; }
       .state { display:inline-block; padding:2px 8px; border-radius:999px; color:#fff; font-size:11px; margin-bottom:8px; }
@@ -24,26 +24,27 @@
       .rpc { word-break:break-all; font-size:13px; margin-bottom:6px; }
       .warn { color:#b45309; font-weight:600; }
       button { margin-right:8px; margin-top:8px; padding:8px 12px; }
-      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      button:disabled { opacity:0.45; cursor:not-allowed; }
       textarea, input, select { width:100%; margin-top:8px; padding:8px; box-sizing:border-box; }
       textarea { min-height:80px; }
-      pre { background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px; overflow:auto; }
-      .banner { background:#fff3cd; border:1px solid #ffecb5; border-radius:8px; color:#7a5d00; padding:10px; margin-bottom:14px; display:none; }
-      .row { margin-top: 8px; }
-      .status-line { margin-top:8px; color:#6b7280; font-size:12px; }
-      .status-line.error { color:#b42332; }
+      pre { background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px; overflow:auto; max-height:260px; }
+      .banner { background:#fff3cd; border:1px solid #ffecb5; border-radius:8px; color:#7a5d00; padding:10px; margin-bottom:14px; }
+      .danger { background:#ffe4e6; border-color:#fecdd3; color:#9f1239; }
+      .row { margin-top:8px; }
+      table { width:100%; border-collapse: collapse; font-size: 12px; }
+      th,td { border-bottom:1px solid #e5eaf1; text-align:left; padding:6px; }
+      .tabs button { margin-right:6px; }
+      .tab-pane { display:none; }
+      .tab-pane.active { display:block; }
     </style>
   </head>
   <body>
     <h1>QikChain Status</h1>
-
-    <div id="readonlyBanner" class="banner">Readonly mode enabled. Transaction actions are blocked.</div>
+    <div id="readonlyBanner" class="banner" style="display:none">Readonly mode enabled. Transaction actions are blocked.</div>
+    <div id="txLabBanner" class="banner danger">⚠️ TX Lab is for local/dev/test only. Never use production keys. Private keys stay server-side and are never returned to browser responses.</div>
 
     <div class="panel">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <div><strong>Overall:</strong> <span id="overallBadge" class="badge degraded">Loading</span></div>
-        <div class="muted" id="timestamp">-</div>
-      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div><strong>Overall:</strong> <span id="overallBadge" class="badge degraded">Loading</span></div><div class="muted" id="timestamp">-</div></div>
       <div class="muted" id="overallReason">-</div>
     </div>
 
@@ -51,239 +52,97 @@
 
     <div class="panel" id="txPanel">
       <strong>Transactions</strong>
-      <div class="row">
-        <label for="txTokenInput" class="muted">Tx Token</label>
-        <input id="txTokenInput" type="password" placeholder="Enter X-TX-TOKEN" />
-      </div>
-      <div class="row">
-        <label for="txRpcSelect" class="muted">RPC target</label>
-        <select id="txRpcSelect"></select>
-      </div>
-      <div class="status-line" id="txInlineStatus">Enter a token to enable actions.</div>
-      <div>
-        <button id="burnBtn">Send 1 wei → burn</button>
-        <button id="deployBtn">Deploy test contract</button>
-      </div>
-      <details style="margin-top:8px;">
-        <summary>Submit raw signed tx</summary>
-        <textarea id="rawTxInput" placeholder="0x..."></textarea>
-        <button id="rawSubmitBtn">Submit raw tx</button>
-      </details>
+      <div class="row"><label class="muted">Tx Token</label><input id="txTokenInput" type="password" placeholder="Enter X-TX-TOKEN" /></div>
+      <div class="row"><label class="muted">RPC target</label><select id="txRpcSelect"></select></div>
+      <div class="row muted" id="txInlineStatus">Enter a token to enable actions.</div>
+      <button id="burnBtn">Send 1 wei → burn</button><button id="deployBtn">Deploy test contract</button>
+      <details style="margin-top:8px;"><summary>Submit raw signed tx</summary><textarea id="rawTxInput" placeholder="0x..."></textarea><button id="rawSubmitBtn">Submit raw tx</button></details>
       <pre id="txResult">No transaction submitted yet.</pre>
     </div>
 
     <div class="panel">
-      <strong>Nodes</strong>
-      <div class="muted" id="rpcConfig">Configured endpoints: -</div>
-      <div class="nodes" id="nodes"></div>
+      <strong>TX Lab</strong>
+      <div class="grid">
+        <div><label class="muted">X-TX-LAB-TOKEN</label><input id="txLabToken" type="password" placeholder="required for mutating actions" /></div>
+        <div><label class="muted">Accounts JSON path</label><input id="txLabAccountsPath" value=".data/txlab/accounts.json" /></div>
+      </div>
+      <div class="tabs" style="margin-top:10px;">
+        <button data-tab="accounts">Accounts</button>
+        <button data-tab="scenarios">Templates/Scenarios</button>
+        <button data-tab="runner">Runner</button>
+        <button data-tab="monitor">Live Monitor</button>
+        <button data-tab="results">Results</button>
+      </div>
+
+      <div id="tab-accounts" class="tab-pane active">
+        <button id="txLabLoadAccounts">Load accounts</button>
+        <button id="txLabRefreshAccounts">Refresh balances/nonces</button>
+        <div id="txLabAccountsTable"></div>
+      </div>
+
+      <div id="tab-scenarios" class="tab-pane">
+        <textarea id="scenarioJson" placeholder='{"name":"burst-native","mode":"native-transfer",...}'></textarea>
+        <button id="saveScenarioBtn">Save scenario</button>
+        <pre id="scenariosList">[]</pre>
+      </div>
+
+      <div id="tab-runner" class="tab-pane">
+        <input id="scenarioName" placeholder="scenario name" />
+        <button id="startRunBtn">Start run</button>
+        <button id="stopRunBtn">Stop active run</button>
+        <pre id="runState">No active run.</pre>
+      </div>
+
+      <div id="tab-monitor" class="tab-pane"><pre id="liveMonitor">Waiting…</pre></div>
+
+      <div id="tab-results" class="tab-pane">
+        <button id="refreshRunsBtn">Refresh runs</button>
+        <select id="runsSelect"></select>
+        <button id="loadRunBtn">Load run results</button>
+        <button id="exportJsonBtn">Export JSON</button>
+        <button id="exportCsvBtn">Export CSV</button>
+        <pre id="runResults">No run selected.</pre>
+      </div>
     </div>
 
-    <script>
-      const overallBadge = document.getElementById('overallBadge');
-      const overallReason = document.getElementById('overallReason');
-      const timestamp = document.getElementById('timestamp');
-      const summaryEl = document.getElementById('summary');
-      const nodesEl = document.getElementById('nodes');
-      const rpcConfig = document.getElementById('rpcConfig');
-      const txResult = document.getElementById('txResult');
-      const rawTxInput = document.getElementById('rawTxInput');
-      const txTokenInput = document.getElementById('txTokenInput');
-      const txRpcSelect = document.getElementById('txRpcSelect');
-      const txInlineStatus = document.getElementById('txInlineStatus');
-      const readonlyBanner = document.getElementById('readonlyBanner');
-      const burnBtn = document.getElementById('burnBtn');
-      const deployBtn = document.getElementById('deployBtn');
-      const rawSubmitBtn = document.getElementById('rawSubmitBtn');
+    <div class="panel"><strong>Nodes</strong><div class="muted" id="rpcConfig">Configured endpoints: -</div><div class="nodes" id="nodes"></div></div>
 
-      const txState = {
-        readonly: false,
-        txEnabled: false,
-        unauthorized: false,
-        rpcUrls: [],
-      };
+<script>
+const overallBadge=document.getElementById('overallBadge');const overallReason=document.getElementById('overallReason');const timestamp=document.getElementById('timestamp');const summaryEl=document.getElementById('summary');const nodesEl=document.getElementById('nodes');const rpcConfig=document.getElementById('rpcConfig');const txResult=document.getElementById('txResult');const rawTxInput=document.getElementById('rawTxInput');const txTokenInput=document.getElementById('txTokenInput');const txRpcSelect=document.getElementById('txRpcSelect');const txInlineStatus=document.getElementById('txInlineStatus');const readonlyBanner=document.getElementById('readonlyBanner');
+const txState={readonly:false,txEnabled:false,unauthorized:false,rpcUrls:[]};
+const txLab={config:null,activeRunId:null,lastResults:null};
+function $(id){return document.getElementById(id)}
+function canSubmitTx(){return Boolean(txTokenInput.value.trim())&&!txState.readonly&&txState.txEnabled;}
+function updateTxControlState(){const d=!canSubmitTx();$('burnBtn').disabled=d;$('deployBtn').disabled=d;$('rawSubmitBtn').disabled=d;if(txState.readonly){txInlineStatus.textContent='Readonly mode enabled';return;}if(!txState.txEnabled){txInlineStatus.textContent='Tx actions disabled on server';return;}if(!txTokenInput.value.trim()){txInlineStatus.textContent='Enter Tx Token to enable tx actions';return;}txInlineStatus.textContent=txState.unauthorized?'Unauthorized (check token)':'Tx actions enabled';}
+function renderSummary(data){const s=data.summary||{};const divergence=Number(s.headDivergence??0);const w=Number(data.divergenceWarn??3);const warn=divergence>w;const items=[['NodesUp / NodesTotal',`${s.nodesUp??'-'} / ${s.nodesTotal??'-'}`],['NodesSealing',s.nodesSealing??'-'],['Min block',s.minBlockHead??'-'],['Max block',s.maxBlockHead??'-'],['Head divergence',`${divergence}${warn?` (warning > ${w})`:''}`],['Chain ID',s.chainId??'unknown'],['Tx features',data.writeMode||'disabled']];summaryEl.innerHTML=items.map(([l,v])=>`<div class="stat"><div class="muted">${l}</div><strong class="${l==='Head divergence'&&warn?'warn':''}">${v}</strong></div>`).join('');}
+function renderNodes(nodes){nodesEl.innerHTML=(nodes||[]).map((n)=>`<div class="node ${n.reachable?'':'down'}"><div class="state ${n.reachable?'up':'down'}">${n.reachable?'Reachable':'Unreachable'}</div><div class="rpc"><strong>${n.rpc}</strong></div><div class="kv"><strong>chainId:</strong> ${n.chainId??'-'}</div><div class="kv"><strong>net_peerCount:</strong> ${n.netPeerCount??'-'}</div><div class="kv"><strong>eth_blockNumber:</strong> ${n.ethBlockNumber??'-'}</div>${n.error?`<div class="error">${n.error}</div>`:''}</div>`).join('');}
+function fillRpcSelect(rpcs){const c=txRpcSelect.value;txRpcSelect.innerHTML='';(rpcs||[]).forEach((rpc,i)=>{const o=document.createElement('option');o.value=rpc;o.textContent=rpc;o.selected=c?rpc===c:i===0;txRpcSelect.appendChild(o);});}
+async function postTx(path,body){txState.unauthorized=false;updateTxControlState();const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json','x-tx-token':txTokenInput.value.trim()},body:JSON.stringify({...body,rpcUrl:txRpcSelect.value||undefined})});const p=await r.json();if(!r.ok){if(r.status===401)txState.unauthorized=true;txResult.textContent=`Error ${r.status}: ${p.error||'request failed'}`;updateTxControlState();return;}txResult.textContent=JSON.stringify(p,null,2);}
+$('burnBtn').onclick=()=>postTx('/api/tx/send-wei',{});$('deployBtn').onclick=()=>postTx('/api/tx/deploy-test-contract',{});$('rawSubmitBtn').onclick=()=>postTx('/api/tx/send-raw',{rawTxHex:rawTxInput.value.trim()});
 
-      function canSubmitTx() {
-        return Boolean(txTokenInput.value.trim()) && !txState.readonly && txState.txEnabled;
-      }
+async function txLabReq(path, method='GET', body){const r=await fetch(path,{method,headers:{'content-type':'application/json','x-tx-lab-token':$('txLabToken').value.trim()},body:body?JSON.stringify(body):undefined});const p=await r.json();if(!r.ok)throw new Error(p.error||`http_${r.status}`);return p;}
+function renderAccounts(accounts){const rows=(accounts||[]).map((a)=>`<tr><td>${a.label}</td><td>${a.address}</td><td>${a.group||'misc'}</td><td>${a.balance||'-'}</td><td>${a.nonce??'-'}</td><td>${a.lastRefreshTs||'-'}</td></tr>`).join('');$('txLabAccountsTable').innerHTML=`<table><thead><tr><th>Label</th><th>Address</th><th>Group</th><th>Balance</th><th>Nonce</th><th>Refreshed</th></tr></thead><tbody>${rows}</tbody></table>`;}
+async function refreshTxLabAccounts(){try{const p=await txLabReq('/api/txlab/accounts');renderAccounts(p.accounts||[]);}catch(e){$('txLabAccountsTable').textContent=`Accounts unavailable: ${e.message}`;}}
+$('txLabLoadAccounts').onclick=async()=>{try{await txLabReq('/api/txlab/accounts/load','POST',{path:$('txLabAccountsPath').value.trim()});await refreshTxLabAccounts();}catch(e){alert(e.message)}};
+$('txLabRefreshAccounts').onclick=async()=>{try{const p=await txLabReq('/api/txlab/accounts/refresh','POST',{});renderAccounts(p.accounts||[]);}catch(e){alert(e.message)}};
+$('saveScenarioBtn').onclick=async()=>{try{await txLabReq('/api/txlab/scenarios','POST',JSON.parse($('scenarioJson').value));await refreshScenarios();}catch(e){alert(e.message)}};
+async function refreshScenarios(){try{const p=await txLabReq('/api/txlab/scenarios');$('scenariosList').textContent=JSON.stringify(p.scenarios||[],null,2);}catch(e){$('scenariosList').textContent=e.message;}}
+$('startRunBtn').onclick=async()=>{try{const run=await txLabReq('/api/txlab/runs/start','POST',{scenarioName:$('scenarioName').value.trim()});txLab.activeRunId=run.id;$('runState').textContent=JSON.stringify(run,null,2);}catch(e){alert(e.message)}};
+$('stopRunBtn').onclick=async()=>{if(!txLab.activeRunId)return;try{const run=await txLabReq(`/api/txlab/runs/${txLab.activeRunId}/stop`,'POST',{});$('runState').textContent=JSON.stringify(run,null,2);}catch(e){alert(e.message)}};
+async function refreshRuns(){try{const p=await txLabReq('/api/txlab/runs');$('runsSelect').innerHTML=(p.runs||[]).map((r)=>`<option value="${r.id}">${r.id} (${r.status})</option>`).join('');if(p.runs&&p.runs[0])txLab.activeRunId=p.runs.find((r)=>r.status==='running')?.id||txLab.activeRunId;$('liveMonitor').textContent=JSON.stringify(p.runs?.find((r)=>r.id===txLab.activeRunId)||p.runs?.[0]||{},null,2);}catch(e){$('liveMonitor').textContent=e.message;}}
+$('refreshRunsBtn').onclick=refreshRuns;
+$('loadRunBtn').onclick=async()=>{const id=$('runsSelect').value;if(!id)return;try{const p=await txLabReq(`/api/txlab/runs/${id}/results`);txLab.lastResults=p;$('runResults').textContent=JSON.stringify(p,null,2);}catch(e){$('runResults').textContent=e.message;}};
+function dl(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();}
+$('exportJsonBtn').onclick=()=>{if(txLab.lastResults)dl(`txlab-${Date.now()}.json`,JSON.stringify(txLab.lastResults,null,2),'application/json')};
+$('exportCsvBtn').onclick=()=>{if(!txLab.lastResults)return;const rows=['txHash,sender,receiver,nonce,status,errorCategory,error'];for(const t of (txLab.lastResults.txs||[])){rows.push([t.txHash,t.sender,t.receiver,t.nonce,t.status,t.errorCategory,`"${(t.error||'').replaceAll('"','""')}"`].join(','));}dl(`txlab-${Date.now()}.csv`,rows.join('\n'),'text/csv')};
 
-      function updateTxControlState() {
-        const disabled = !canSubmitTx();
-        burnBtn.disabled = disabled;
-        deployBtn.disabled = disabled;
-        rawSubmitBtn.disabled = disabled;
+document.querySelectorAll('.tabs button').forEach((b)=>b.onclick=()=>{document.querySelectorAll('.tab-pane').forEach((p)=>p.classList.remove('active'));$('tab-'+b.dataset.tab).classList.add('active');});
 
-        if (txState.readonly) {
-          txInlineStatus.textContent = 'Readonly mode enabled';
-          txInlineStatus.className = 'status-line error';
-          return;
-        }
-        if (!txState.txEnabled) {
-          txInlineStatus.textContent = 'Tx actions disabled on server';
-          txInlineStatus.className = 'status-line error';
-          return;
-        }
-        if (!txTokenInput.value.trim()) {
-          txInlineStatus.textContent = 'Enter Tx Token to enable tx actions';
-          txInlineStatus.className = 'status-line';
-          return;
-        }
-        if (txState.unauthorized) {
-          txInlineStatus.textContent = 'Unauthorized (check token)';
-          txInlineStatus.className = 'status-line error';
-          return;
-        }
+async function refreshConfig(){try{const c=await (await fetch('/api/config')).json();txState.readonly=Boolean(c.readonly);txState.txEnabled=Boolean(c.txEnabled);}catch{}readonlyBanner.style.display=txState.readonly?'block':'none';updateTxControlState();}
+async function refresh(){try{const data=await (await fetch('/api/status')).json();const healthy=Boolean(data.overall&&data.overall.healthy);overallBadge.textContent=healthy?'Healthy':'Degraded';overallBadge.className=`badge ${healthy?'healthy':'degraded'}`;overallReason.textContent=data.overall?.reason||'-';timestamp.textContent=data.timestamp?new Date(data.timestamp).toLocaleTimeString():'-';const configuredCount=Number(data.configuredRpcs??(Array.isArray(data.nodes)?data.nodes.length:0));const configuredList=Array.isArray(data.rpcs)&&data.rpcs.length>0?` (${data.rpcs.join(', ')})`:'';rpcConfig.textContent=`Configured endpoints: ${configuredCount}${configuredList}`;txState.rpcUrls=Array.isArray(data.rpcs)?data.rpcs:[];fillRpcSelect(txState.rpcUrls);renderSummary(data);renderNodes(data.nodes);await refreshConfig();}catch{overallBadge.textContent='Error';overallBadge.className='badge degraded';overallReason.textContent='Failed to fetch /api/status';}}
+async function refreshTxLabConfig(){try{txLab.config=await txLabReq('/api/txlab/config');if(!txLab.config.enabled){$('txLabBanner').textContent='TX Lab is disabled. Set TX_LAB_ENABLE=1 to enable.';}}catch(e){$('txLabBanner').textContent=`TX Lab unavailable: ${e.message}`;}}
 
-        txInlineStatus.textContent = 'Tx actions enabled';
-        txInlineStatus.className = 'status-line';
-      }
-
-      function renderSummary(data) {
-        const summary = data.summary || {};
-        const divergence = Number(summary.headDivergence ?? 0);
-        const divergenceWarn = Number(data.divergenceWarn ?? 3);
-        const warn = divergence > divergenceWarn;
-        const items = [
-          ['NodesUp / NodesTotal', `${summary.nodesUp ?? '-'} / ${summary.nodesTotal ?? '-'}`],
-          ['NodesSealing', summary.nodesSealing ?? '-'],
-          ['Min block', summary.minBlockHead ?? '-'],
-          ['Max block', summary.maxBlockHead ?? '-'],
-          ['Head divergence', `${divergence}${warn ? ` (warning > ${divergenceWarn})` : ''}`],
-          ['Chain ID', summary.chainId ?? 'unknown'],
-          ['readonlyProd', String(Boolean(data.readonlyProd))],
-          ['authEnabled', String(Boolean(data.authEnabled))],
-          ['Tx features', data.writeMode || 'disabled'],
-        ];
-
-        summaryEl.innerHTML = items
-          .map(([label, value]) => `<div class="stat"><div class="muted">${label}</div><strong class="${label === 'Head divergence' && warn ? 'warn' : ''}">${value}</strong></div>`)
-          .join('');
-      }
-
-      function renderNodes(nodes) {
-        nodesEl.innerHTML = (nodes || [])
-          .map((node) => `
-            <div class="node ${node.reachable ? '' : 'down'}">
-              <div class="state ${node.reachable ? 'up' : 'down'}">${node.reachable ? 'Reachable' : 'Unreachable'}</div>
-              <div class="rpc"><strong>${node.rpc}</strong></div>
-              <div class="kv"><strong>chainId:</strong> ${node.chainId ?? '-'}</div>
-              <div class="kv"><strong>net_peerCount:</strong> ${node.netPeerCount ?? '-'}</div>
-              <div class="kv"><strong>eth_blockNumber:</strong> ${node.ethBlockNumber ?? '-'}</div>
-              ${node.error ? `<div class="error">${node.error}</div>` : ''}
-            </div>
-          `)
-          .join('');
-      }
-
-      function fillRpcSelect(rpcs) {
-        const current = txRpcSelect.value;
-        txRpcSelect.innerHTML = '';
-        (rpcs || []).forEach((rpc, index) => {
-          const option = document.createElement('option');
-          option.value = rpc;
-          option.textContent = rpc;
-          if (current) {
-            option.selected = rpc === current;
-          } else {
-            option.selected = index === 0;
-          }
-          txRpcSelect.appendChild(option);
-        });
-      }
-
-      function renderTxResult(payload) {
-        const hash = payload.txHash ? `txHash: ${payload.txHash}` : '';
-        const address = payload.contractAddress ? `\ncontractAddress: ${payload.contractAddress}` : '';
-        txResult.textContent = `${hash}${address}`.trim() || JSON.stringify(payload, null, 2);
-      }
-
-      async function postTx(path, body) {
-        txState.unauthorized = false;
-        updateTxControlState();
-        try {
-          const response = await fetch(path, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-tx-token': txTokenInput.value.trim(),
-            },
-            body: JSON.stringify({ ...(body || {}), rpcUrl: txRpcSelect.value || undefined }),
-          });
-          const payload = await response.json();
-          if (!response.ok) {
-            if (response.status === 401) {
-              txState.unauthorized = true;
-              updateTxControlState();
-            }
-            if (response.status === 403 && payload.error === 'readonly') {
-              txState.readonly = true;
-              readonlyBanner.style.display = 'block';
-              updateTxControlState();
-            }
-            if (response.status === 503 && payload.error === 'tx_disabled') {
-              txState.txEnabled = false;
-              updateTxControlState();
-            }
-            txResult.textContent = `Error ${response.status}: ${payload.error || 'request failed'}`;
-            return;
-          }
-          renderTxResult(payload);
-        } catch (_error) {
-          txResult.textContent = 'Failed to submit transaction request.';
-        }
-      }
-
-      document.getElementById('burnBtn').addEventListener('click', () => postTx('/api/tx/send-wei', {}));
-      document.getElementById('deployBtn').addEventListener('click', () => postTx('/api/tx/deploy-test-contract', {}));
-      document.getElementById('rawSubmitBtn').addEventListener('click', () => postTx('/api/tx/send-raw', { rawTxHex: rawTxInput.value.trim() }));
-      txTokenInput.addEventListener('input', () => {
-        txState.unauthorized = false;
-        updateTxControlState();
-      });
-
-      async function refreshConfig() {
-        try {
-          const response = await fetch('/api/config');
-          const config = await response.json();
-          txState.readonly = Boolean(config.readonly);
-          txState.txEnabled = Boolean(config.txEnabled);
-        } catch (_error) {
-          txState.readonly = false;
-          txState.txEnabled = false;
-        }
-
-        readonlyBanner.style.display = txState.readonly ? 'block' : 'none';
-        updateTxControlState();
-      }
-
-      async function refresh() {
-        try {
-          const response = await fetch('/api/status');
-          const data = await response.json();
-          const healthy = Boolean(data.overall && data.overall.healthy);
-
-          overallBadge.textContent = healthy ? 'Healthy' : 'Degraded';
-          overallBadge.className = `badge ${healthy ? 'healthy' : 'degraded'}`;
-          overallReason.textContent = data.overall?.reason || '-';
-          timestamp.textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-';
-
-          const configuredCount = Number(data.configuredRpcs ?? (Array.isArray(data.nodes) ? data.nodes.length : 0));
-          const configuredList = Array.isArray(data.rpcs) && data.rpcs.length > 0 ? ` (${data.rpcs.join(', ')})` : '';
-          rpcConfig.textContent = `Configured endpoints: ${configuredCount}${configuredList}`;
-          txState.rpcUrls = Array.isArray(data.rpcs) ? data.rpcs : [];
-          fillRpcSelect(txState.rpcUrls);
-
-          renderSummary(data);
-          renderNodes(data.nodes);
-          await refreshConfig();
-        } catch (_error) {
-          overallBadge.textContent = 'Error';
-          overallBadge.className = 'badge degraded';
-          overallReason.textContent = 'Failed to fetch /api/status';
-        }
-      }
-
-      refresh();
-      setInterval(refresh, 2000);
-    </script>
+refresh();refreshTxLabConfig();refreshTxLabAccounts();refreshScenarios();refreshRuns();setInterval(()=>{refresh();refreshRuns();},2000);
+</script>
   </body>
 </html>

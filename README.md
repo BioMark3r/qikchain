@@ -18,6 +18,7 @@ QikChain is a Polygon Edge–based EVM chain with a custom Go CLI for determinis
 - [Devnet: IBFT 4-node](#devnet-ibft-4-node)
 - [Metrics](#metrics)
 - [Network Status UI](#network-status-ui)
+- [TX Lab (Dev-only Transaction Testing UI)](#tx-lab-dev-only-transaction-testing-ui)
 - [Wallet + Faucet (Devnet)](#wallet--faucet-devnet)
 - [CI / Health Checks](#ci--health-checks)
 - [Troubleshooting](#troubleshooting)
@@ -542,6 +543,158 @@ Submit raw transaction:
 ```bash
 curl -u user:pass -H "X-TX-TOKEN: $TX_TOKEN" -H "content-type: application/json"   -d '{"rawTxHex":"0x...","rpcUrl":"http://127.0.0.1:8545"}' http://127.0.0.1:8788/api/tx/send-raw
 ```
+
+
+
+## TX Lab (Dev-only Transaction Testing UI)
+
+> ⚠️ **Dev/test environments only. Disabled by default.**
+
+TX Lab adds a guarded transaction testing backend + UI at `/` (status UI) with tabs for Accounts, Scenarios, Runner, Live Monitor, and Results.
+
+### Guardrails
+
+- `TX_LAB_ENABLE=1` is required to enable any TX Lab API/UX.
+- Raw private-key loading is blocked unless `TX_LAB_INSECURE_KEYS=1`.
+- All mutating endpoints require `X-TX-LAB-TOKEN`.
+- Default bind is loopback (`TX_LAB_HOST=127.0.0.1`).
+- Private keys are never returned by API responses.
+
+### Environment variables
+
+```bash
+TX_LAB_ENABLE=0
+TX_LAB_INSECURE_KEYS=0
+TX_LAB_HOST=127.0.0.1
+TX_LAB_PORT=8799
+TX_LAB_TOKEN=
+TX_LAB_RPC_URL=http://127.0.0.1:8545
+TX_LAB_DB_PATH=.data/txlab/txlab-runs.jsonl
+TX_LAB_ACCOUNTS_FILE=.data/txlab/accounts.json
+TX_LAB_MAX_CONCURRENCY=100
+TX_LAB_MAX_TX_PER_RUN=10000
+```
+
+### Account file example
+
+```json
+{
+  "chainId": 100,
+  "accounts": [
+    { "label": "sender-01", "privateKey": "0xabc...", "address": "0x..." },
+    { "label": "receiver-01", "privateKey": "0xdef..." }
+  ]
+}
+```
+
+If `address` is omitted, TX Lab derives it from the private key and validates key/address pairing.
+
+### Scenario example
+
+```json
+{
+  "name": "burst-native-transfers",
+  "mode": "native-transfer",
+  "txType": "legacy",
+  "senderSelection": ["sender-01", "sender-02"],
+  "receiverSelection": ["receiver-01", "receiver-02", "receiver-03"],
+  "valueWei": "1000000000000000",
+  "txCount": 500,
+  "concurrency": 25,
+  "rateLimitTps": 50,
+  "waitMode": "wait-receipt",
+  "timeoutSeconds": 30,
+  "randomizeReceivers": true
+}
+```
+
+Supported modes (MVP):
+
+- `native-transfer`
+- `raw-tx` (`rawTxHex`)
+- `contract-deploy` (`bytecode`)
+- `contract-call` (`contractAddress` + `data`, or `abi` + `method` + `args`)
+
+### Start / stop
+
+```bash
+# starts status-ui server with TX Lab enabled, on TX_LAB_PORT
+make tx-lab-up
+make tx-lab-status
+make tx-lab-logs
+make tx-lab-stop
+```
+
+### REST API
+
+Read-only:
+
+- `GET /api/txlab/health`
+- `GET /api/txlab/config`
+- `GET /api/txlab/accounts`
+- `POST /api/txlab/accounts/refresh`
+- `GET /api/txlab/scenarios`
+- `GET /api/txlab/runs`
+- `GET /api/txlab/runs/:id`
+- `GET /api/txlab/runs/:id/results`
+
+Mutating (`X-TX-LAB-TOKEN` required):
+
+- `POST /api/txlab/accounts/load`
+- `POST /api/txlab/accounts/group`
+- `POST /api/txlab/scenarios`
+- `POST /api/txlab/runs/start`
+- `POST /api/txlab/runs/:id/stop`
+
+### cURL examples
+
+```bash
+export TX_LAB_TOKEN=dev-only-strong-token
+
+# load accounts from local file
+curl -H "X-TX-LAB-TOKEN: $TX_LAB_TOKEN" -H "content-type: application/json" \
+  -d '{"path":".data/txlab/accounts.json"}' \
+  http://127.0.0.1:8799/api/txlab/accounts/load
+
+# list account summaries
+curl http://127.0.0.1:8799/api/txlab/accounts
+
+# save scenario
+curl -H "X-TX-LAB-TOKEN: $TX_LAB_TOKEN" -H "content-type: application/json" \
+  -d @scenario.json \
+  http://127.0.0.1:8799/api/txlab/scenarios
+
+# start run
+curl -H "X-TX-LAB-TOKEN: $TX_LAB_TOKEN" -H "content-type: application/json" \
+  -d '{"scenarioName":"burst-native-transfers"}' \
+  http://127.0.0.1:8799/api/txlab/runs/start
+
+# stop run
+curl -H "X-TX-LAB-TOKEN: $TX_LAB_TOKEN" -H "content-type: application/json" \
+  -d '{}' \
+  http://127.0.0.1:8799/api/txlab/runs/<run-id>/stop
+
+# fetch results
+curl http://127.0.0.1:8799/api/txlab/runs/<run-id>/results
+```
+
+### Notes
+
+- Nonces are reserved per sender during parallel runs to reduce collision risk.
+- Runs support fixed-count bursts and optional TPS limiting.
+- Run summaries and per-tx outcomes persist in `.data/txlab/runs/*.json` and summary JSONL (`TX_LAB_DB_PATH`).
+- Error classes include nonce, underpriced replacement, insufficient funds, intrinsic gas, execution reverted, invalid sender/raw tx, timeout, rpc/network, unknown.
+
+### Troubleshooting
+
+- `tx_lab_disabled`: set `TX_LAB_ENABLE=1`.
+- `unauthorized`: set `TX_LAB_TOKEN` and send `X-TX-LAB-TOKEN`.
+- `insecure_keys_disabled`: set `TX_LAB_INSECURE_KEYS=1` for local-only key loading.
+- account file missing: verify `TX_LAB_ACCOUNTS_FILE` / request path.
+- invalid private key mismatch: fix address/private key pairing.
+- `insufficient_funds`: fund senders.
+- `nonce_too_low`: refresh account nonces / avoid stale concurrent runs.
+- RPC errors: verify `TX_LAB_RPC_URL` and node availability.
 
 
 ## Metrics

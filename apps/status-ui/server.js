@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const path = require('path');
 const { execFile } = require('child_process');
+const { TxLab } = require('./txlab');
 
 const app = express();
 const statusUiPort = Number(process.env.STATUS_UI_PORT || process.env.PORT || 8788);
@@ -17,6 +18,7 @@ const rawTxMaxBytes = readonlyProd ? Math.min(rawTxMaxBytesBase, 4096) : rawTxMa
 const deployGasCap = Math.max(21000, Number(process.env.DEPLOY_GAS_CAP || 2000000));
 const repoRoot = path.resolve(__dirname, '..', '..');
 const txHelperPath = path.join(repoRoot, 'bin', 'txhelper');
+const txLab = new TxLab(repoRoot);
 const TX_TIMEOUT_MS = 20000;
 const RPC_TIMEOUT_MS = Math.max(500, Number(process.env.RPC_TIMEOUT_MS || 2000));
 const BURN_ADDRESS = process.env.BURN_ADDRESS || '0x000000000000000000000000000000000000dEaD';
@@ -378,6 +380,23 @@ function ensureFundingKey(res) {
   return false;
 }
 
+function txLabEnabledMiddleware(_req, res, next) {
+  if (!txLab.getPublicConfig().enabled) {
+    res.status(503).json({ error: 'tx_lab_disabled', message: 'Set TX_LAB_ENABLE=1 to enable tx-lab.' });
+    return;
+  }
+  next();
+}
+
+function txLabTokenMiddleware(req, res, next) {
+  try {
+    txLab.checkToken(String(req.headers['x-tx-lab-token'] || ''));
+    next();
+  } catch (error) {
+    res.status(error.statusCode || 401).json({ error: error.message || 'unauthorized' });
+  }
+}
+
 app.use(authMiddleware);
 app.use(express.json({ limit: '16kb', strict: true }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -507,6 +526,107 @@ app.post('/api/tx/send-raw', txGateMiddleware, async (req, res) => {
     res.json({ txHash: parsed.txHash });
   } catch (error) {
     res.status(500).json({ error: sanitizeTxError(error.message || 'submit raw failed') });
+  }
+});
+
+
+app.get('/api/txlab/health', (_req, res) => {
+  const cfg = txLab.getPublicConfig();
+  res.status(cfg.enabled ? 200 : 503).json({
+    ok: cfg.enabled,
+    enabled: cfg.enabled,
+    insecureKeys: cfg.insecureKeys,
+    tokenConfigured: cfg.tokenConfigured,
+    rpcUrl: cfg.rpcUrl,
+    activeRun: txLab.activeRun ? txLab.activeRun.id : null,
+  });
+});
+
+app.get('/api/txlab/config', (_req, res) => {
+  res.json(txLab.getPublicConfig());
+});
+
+app.get('/api/txlab/accounts', txLabEnabledMiddleware, (_req, res) => {
+  res.json({ accounts: txLab.listAccounts() });
+});
+
+app.post('/api/txlab/accounts/refresh', txLabEnabledMiddleware, async (_req, res) => {
+  try {
+    const accounts = await txLab.refreshAccounts();
+    res.json({ accounts });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'refresh_failed' });
+  }
+});
+
+app.get('/api/txlab/scenarios', txLabEnabledMiddleware, (_req, res) => {
+  res.json({ scenarios: txLab.listScenarios() });
+});
+
+app.get('/api/txlab/runs', txLabEnabledMiddleware, (_req, res) => {
+  res.json({ runs: txLab.listRuns() });
+});
+
+app.get('/api/txlab/runs/:id', txLabEnabledMiddleware, (req, res) => {
+  const run = txLab.getRun(req.params.id);
+  if (!run) {
+    res.status(404).json({ error: 'run_not_found' });
+    return;
+  }
+  res.json(run);
+});
+
+app.get('/api/txlab/runs/:id/results', txLabEnabledMiddleware, (req, res) => {
+  const run = txLab.getRunResults(req.params.id);
+  if (!run) {
+    res.status(404).json({ error: 'run_not_found' });
+    return;
+  }
+  res.json(run);
+});
+
+app.post('/api/txlab/accounts/load', txLabEnabledMiddleware, txLabTokenMiddleware, async (req, res) => {
+  try {
+    const result = await txLab.loadAccountsFromFile(req.body?.path);
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message || 'load_failed' });
+  }
+});
+
+app.post('/api/txlab/accounts/group', txLabEnabledMiddleware, txLabTokenMiddleware, (req, res) => {
+  try {
+    const updated = txLab.setAccountGroup(String(req.body?.label || ''), String(req.body?.group || 'misc'));
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'group_failed' });
+  }
+});
+
+app.post('/api/txlab/scenarios', txLabEnabledMiddleware, txLabTokenMiddleware, async (req, res) => {
+  try {
+    const scenario = await txLab.saveScenario(req.body || {});
+    res.json(scenario);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'scenario_invalid' });
+  }
+});
+
+app.post('/api/txlab/runs/start', txLabEnabledMiddleware, txLabTokenMiddleware, async (req, res) => {
+  try {
+    const run = await txLab.startRun(req.body?.scenario || req.body?.scenarioName);
+    res.json(run);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'run_start_failed' });
+  }
+});
+
+app.post('/api/txlab/runs/:id/stop', txLabEnabledMiddleware, txLabTokenMiddleware, async (req, res) => {
+  try {
+    const run = await txLab.stopRun(req.params.id);
+    res.json(run);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'run_stop_failed' });
   }
 });
 
